@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.KeyEvent;
 
 import java.lang.reflect.Executable;
@@ -39,13 +40,13 @@ public final class TriKeyModule extends XposedModule {
                 hookMethod(method);
                 installed++;
             }
-            log("Installed " + installed + " key interception hook(s)");
+            log(Log.INFO, "TriKey", "Installed " + installed + " key interception hook(s)");
         } catch (Throwable error) {
-            log("Unable to install hooks", error);
+            log(Log.ERROR, "TriKey", "Unable to install hooks", error);
         }
     }
 
-    private void hookMethod(Executable method) {
+    private void hookMethod(Method method) {
         hook(method)
                 .setId("trikey:" + method.toGenericString())
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -143,7 +144,7 @@ public final class TriKeyModule extends XposedModule {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             context.startActivity(intent);
         } catch (Throwable error) {
-            log("Action failed for " + gesture + ": " + type, error);
+            log(Log.ERROR, "TriKey", "Action failed for " + gesture + ": " + type, error);
         }
     }
 
@@ -152,7 +153,7 @@ public final class TriKeyModule extends XposedModule {
             Bundle result = context.getContentResolver().call(CONFIG_URI, "getConfig", null, null);
             if (result != null) return result;
         } catch (Throwable error) {
-            log("Unable to read settings", error);
+            log(Log.ERROR, "TriKey", "Unable to read settings", error);
         }
         Bundle fallback = new Bundle();
         fallback.putBoolean("enabled", false);
