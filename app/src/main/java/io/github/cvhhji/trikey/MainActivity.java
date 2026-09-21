@@ -1,11 +1,14 @@
 package io.github.cvhhji.trikey;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.SharedPreferences;
-import android.graphics.Color;
+import android.content.pm.PackageManager;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.View;
+import android.view.Gravity;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -13,6 +16,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -24,6 +28,7 @@ public final class MainActivity extends Activity {
     private final Map<String, Spinner> typeViews = new LinkedHashMap<>();
     private final Map<String, EditText> valueViews = new LinkedHashMap<>();
     private CheckBox enabled;
+    private Switch launcherVisible;
     private EditText keyCode;
     private EditText doubleMs;
     private EditText longMs;
@@ -42,23 +47,51 @@ public final class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(32));
-        root.setBackgroundColor(Color.rgb(247, 248, 250));
+        root.setPadding(dp(18), dp(24), dp(18), dp(36));
+        root.setBackgroundColor(color(R.color.page_background));
 
-        TextView title = text("TriKey", 28, true);
-        root.addView(title);
-        TextView intro = text("将一个硬件按键扩展为单击、双击和长按。修改后无需重启；首次启用模块或更改作用域后需要重启系统。", 14, false);
-        intro.setTextColor(Color.DKGRAY);
-        root.addView(intro, margins(0, 6, 0, 18));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark = text("T", 22, true, R.color.on_primary);
+        mark.setGravity(Gravity.CENTER);
+        mark.setBackground(round(R.color.primary, 14));
+        header.addView(mark, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
+        heading.addView(text("TriKey", 27, true, R.color.text_primary));
+        heading.addView(text("一个按键，三种动作", 14, false, R.color.text_secondary));
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        headingParams.setMargins(dp(14), 0, 0, 0);
+        header.addView(heading, headingParams);
+        root.addView(header);
 
+        TextView intro = text("将硬件按键扩展为单击、双击和长按。设置保存后立即生效。", 14, false, R.color.text_secondary);
+        intro.setLineSpacing(0, 1.15f);
+        root.addView(intro, margins(0, 16, 0, 20));
+
+        LinearLayout general = card("常规");
         enabled = new CheckBox(this);
         enabled.setText("启用按键映射");
+        enabled.setTextColor(color(R.color.text_primary));
+        enabled.setTextSize(16);
         enabled.setChecked(prefs.getBoolean("enabled", true));
-        root.addView(enabled);
+        general.addView(enabled);
 
-        keyCode = numberField(root, "按键码", prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
-        doubleMs = numberField(root, "双击间隔（毫秒）", prefs.getInt("doubleMs", Config.DEFAULT_DOUBLE_MS));
-        longMs = numberField(root, "长按阈值（毫秒）", prefs.getInt("longMs", Config.DEFAULT_LONG_MS));
+        launcherVisible = new Switch(this);
+        launcherVisible.setText("在桌面显示图标");
+        launcherVisible.setTextColor(color(R.color.text_primary));
+        launcherVisible.setTextSize(16);
+        launcherVisible.setChecked(isLauncherVisible());
+        general.addView(launcherVisible, margins(0, 8, 0, 0));
+        general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
+        root.addView(general);
+
+        LinearLayout timing = card("按键与时序");
+        keyCode = numberField(timing, "按键码", prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
+        doubleMs = numberField(timing, "双击间隔（毫秒）", prefs.getInt("doubleMs", Config.DEFAULT_DOUBLE_MS));
+        longMs = numberField(timing, "长按阈值（毫秒）", prefs.getInt("longMs", Config.DEFAULT_LONG_MS));
+        root.addView(timing, margins(0, 14, 0, 0));
 
         addGesture(root, "single", "单击");
         addGesture(root, "double", "双击");
@@ -66,20 +99,27 @@ public final class MainActivity extends Activity {
 
         Button save = new Button(this);
         save.setText("保存设置");
+        save.setTextSize(16);
+        save.setTextColor(color(R.color.on_primary));
+        save.setAllCaps(false);
+        save.setBackground(round(R.color.primary, 14));
         save.setOnClickListener(v -> save());
-        root.addView(save, margins(0, 22, 0, 8));
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
+        saveParams.setMargins(0, dp(20), 0, dp(14));
+        root.addView(save, saveParams);
 
-        TextView hint = text("启动应用时填写包名；Intent URI 可填写 intent:#Intent;action=...;end。默认按键码 219 是 KEYCODE_ASSIST。若快捷键无反应，可用 adb shell getevent -l 确认按键，再填写 Android keyCode。", 13, false);
-        hint.setTextColor(Color.GRAY);
+        TextView hint = text("启动应用时填写包名；Intent URI 可填写完整 URI。默认按键码 219 为 KEYCODE_ASSIST，不同机型可能不同。", 12, false, R.color.text_tertiary);
+        hint.setLineSpacing(0, 1.2f);
         root.addView(hint);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         scroll.addView(root);
         setContentView(scroll);
     }
 
     private void addGesture(LinearLayout root, String key, String label) {
-        root.addView(text(label, 18, true), margins(0, 18, 0, 5));
+        LinearLayout section = card(label);
         Spinner spinner = new Spinner(this);
         String[] labels = actions.keySet().toArray(new String[0]);
         spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
@@ -90,22 +130,47 @@ public final class MainActivity extends Activity {
             index++;
         }
         spinner.setSelection(Math.min(index, labels.length - 1));
-        root.addView(spinner);
+        spinner.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
+        spinner.setPadding(dp(12), 0, dp(8), 0);
+        section.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+
         EditText value = new EditText(this);
         value.setHint("包名或 Intent URI（预设动作可留空）");
+        value.setHintTextColor(color(R.color.text_tertiary));
+        value.setTextColor(color(R.color.text_primary));
+        value.setTextSize(14);
         value.setSingleLine(false);
+        value.setMinLines(1);
+        value.setMaxLines(3);
+        value.setPadding(dp(12), dp(10), dp(12), dp(10));
+        value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
         value.setText(prefs.getString(key + "Value", ""));
-        root.addView(value);
+        section.addView(value, margins(0, 10, 0, 0));
+        root.addView(section, margins(0, 14, 0, 0));
         typeViews.put(key, spinner);
         valueViews.put(key, value);
     }
 
+    private LinearLayout card(String title) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(16), dp(14), dp(16), dp(16));
+        layout.setBackground(roundWithStroke(R.color.card_background, R.color.outline, 16));
+        layout.addView(text(title, 17, true, R.color.text_primary), margins(0, 0, 0, 10));
+        return layout;
+    }
+
     private EditText numberField(LinearLayout root, String label, int value) {
-        root.addView(text(label, 15, true), margins(0, 12, 0, 0));
+        root.addView(text(label, 13, false, R.color.text_secondary), margins(0, 8, 0, 5));
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(value));
-        root.addView(input);
+        input.setTextColor(color(R.color.text_primary));
+        input.setTextSize(15);
+        input.setSingleLine(true);
+        input.setPadding(dp(12), 0, dp(12), 0);
+        input.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
+        root.addView(input, new LinearLayout.LayoutParams(-1, dp(46)));
         return input;
     }
 
@@ -114,24 +179,32 @@ public final class MainActivity extends Activity {
             int key = Integer.parseInt(keyCode.getText().toString().trim());
             int dbl = Integer.parseInt(doubleMs.getText().toString().trim());
             int lng = Integer.parseInt(longMs.getText().toString().trim());
-            if (key < 1 || dbl < 100 || dbl > 1000 || lng < 250 || lng > 3000) {
-                throw new IllegalArgumentException();
-            }
-            SharedPreferences.Editor e = prefs.edit()
-                    .putBoolean("enabled", enabled.isChecked())
-                    .putInt("keyCode", key)
-                    .putInt("doubleMs", dbl)
-                    .putInt("longMs", lng);
+            if (key < 1 || dbl < 100 || dbl > 1000 || lng < 250 || lng > 3000) throw new IllegalArgumentException();
+            SharedPreferences.Editor e = prefs.edit().putBoolean("enabled", enabled.isChecked()).putInt("keyCode", key).putInt("doubleMs", dbl).putInt("longMs", lng);
             for (String gesture : typeViews.keySet()) {
                 String label = String.valueOf(typeViews.get(gesture).getSelectedItem());
                 e.putString(gesture + "Type", actions.get(label));
                 e.putString(gesture + "Value", valueViews.get(gesture).getText().toString().trim());
             }
             e.apply();
+            setLauncherVisible(launcherVisible.isChecked());
             Toast.makeText(this, "已保存，下一次按键立即生效", Toast.LENGTH_SHORT).show();
         } catch (Exception ignored) {
             Toast.makeText(this, "请检查按键码和时间参数", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private boolean isLauncherVisible() {
+        int state = getPackageManager().getComponentEnabledSetting(launcherComponent());
+        return state != PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+    }
+
+    private void setLauncherVisible(boolean visible) {
+        getPackageManager().setComponentEnabledSetting(launcherComponent(), visible ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+    }
+
+    private ComponentName launcherComponent() {
+        return new ComponentName(this, getPackageName() + ".Launcher");
     }
 
     private String defaultType(String key) {
@@ -140,13 +213,30 @@ public final class MainActivity extends Activity {
         return "ocr";
     }
 
-    private TextView text(String value, int sp, boolean bold) {
+    private TextView text(String value, int sp, boolean bold, int colorId) {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(sp);
-        view.setTextColor(Color.BLACK);
-        if (bold) view.setTypeface(null, android.graphics.Typeface.BOLD);
+        view.setTextColor(color(colorId));
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return view;
+    }
+
+    private GradientDrawable round(int colorId, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color(colorId));
+        drawable.setCornerRadius(dp(radius));
+        return drawable;
+    }
+
+    private GradientDrawable roundWithStroke(int fillId, int strokeId, int radius) {
+        GradientDrawable drawable = round(fillId, radius);
+        drawable.setStroke(dp(1), color(strokeId));
+        return drawable;
+    }
+
+    private int color(int id) {
+        return getColor(id);
     }
 
     private LinearLayout.LayoutParams margins(int l, int t, int r, int b) {
@@ -159,4 +249,3 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }
-

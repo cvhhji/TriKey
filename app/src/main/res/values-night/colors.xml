@@ -1,0 +1,11 @@
+<resources>
+    <color name="primary">#8EAEFF</color>
+    <color name="on_primary">#102653</color>
+    <color name="page_background">#101114</color>
+    <color name="card_background">#191B20</color>
+    <color name="field_background">#202329</color>
+    <color name="outline">#30343C</color>
+    <color name="text_primary">#F0F1F3</color>
+    <color name="text_secondary">#BEC2CA</color>
+    <color name="text_tertiary">#9298A3</color>
+</resources>

@@ -23,6 +23,8 @@ GitHub Actions builds the release APK and uploads it as the `TriKey-release` art
 3. Confirm that `System Framework (system)` is selected, then reboot.
 4. Open TriKey and configure the key code and three gestures.
 
+TriKey follows the system light or dark theme. Its launcher icon can be hidden from the settings screen; the activity remains available from the LSPosed module list.
+
 The default key code is `219` (`KEYCODE_ASSIST`). Hardware mappings vary by model. If the key is not detected, use `adb shell getevent -l` to identify the physical event and its Android key mapping.
 
 ## Supported actions
