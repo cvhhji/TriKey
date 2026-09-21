@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.cvhhji.trikey"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.2.1"
     }
 
     signingConfigs {
@@ -55,4 +55,5 @@ android {
 
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
+    implementation("io.github.libxposed:service:102.0.0")
 }

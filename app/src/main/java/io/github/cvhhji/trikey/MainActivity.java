@@ -25,6 +25,9 @@ import android.widget.Toast;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import io.github.libxposed.service.XposedService;
+import io.github.libxposed.service.XposedServiceHelper;
+
 public final class MainActivity extends Activity {
     private final Map<String, String> actions = new LinkedHashMap<>();
     private final Map<String, Spinner> typeViews = new LinkedHashMap<>();
@@ -34,12 +37,12 @@ public final class MainActivity extends Activity {
     private EditText keyCode;
     private EditText doubleMs;
     private EditText longMs;
+    private Button save;
     private SharedPreferences prefs;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        prefs = getSharedPreferences(Config.PREFS, MODE_PRIVATE);
         actions.put("关闭", "none");
         actions.put("打开微信", "wechat");
         actions.put("全局搜索", "global_search");
@@ -93,7 +96,7 @@ public final class MainActivity extends Activity {
         enabled.setText("启用按键映射");
         enabled.setTextColor(color(R.color.text_primary));
         enabled.setTextSize(16);
-        enabled.setChecked(prefs.getBoolean("enabled", true));
+        enabled.setChecked(true);
         general.addView(enabled);
 
         launcherVisible = new Switch(this);
@@ -101,25 +104,27 @@ public final class MainActivity extends Activity {
         launcherVisible.setTextColor(color(R.color.text_primary));
         launcherVisible.setTextSize(16);
         launcherVisible.setChecked(isLauncherVisible());
+        launcherVisible.setOnCheckedChangeListener((button, visible) -> setLauncherVisible(visible));
         general.addView(launcherVisible, margins(0, 8, 0, 0));
         general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
         root.addView(general);
 
         LinearLayout timing = card("按键与时序");
-        keyCode = numberField(timing, "按键码", prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
-        doubleMs = numberField(timing, "双击间隔（毫秒）", prefs.getInt("doubleMs", Config.DEFAULT_DOUBLE_MS));
-        longMs = numberField(timing, "长按阈值（毫秒）", prefs.getInt("longMs", Config.DEFAULT_LONG_MS));
+        keyCode = numberField(timing, "按键码", Config.DEFAULT_KEY_CODE);
+        doubleMs = numberField(timing, "双击间隔（毫秒）", Config.DEFAULT_DOUBLE_MS);
+        longMs = numberField(timing, "长按阈值（毫秒）", Config.DEFAULT_LONG_MS);
         root.addView(timing, margins(0, 14, 0, 0));
 
         addGesture(root, "single", "单击");
         addGesture(root, "double", "双击");
         addGesture(root, "long", "长按");
 
-        Button save = new Button(this);
+        save = new Button(this);
         save.setText("保存设置");
         save.setTextSize(16);
         save.setTextColor(color(R.color.on_primary));
         save.setAllCaps(false);
+        save.setEnabled(false);
         save.setBackground(round(R.color.primary, 14));
         save.setOnClickListener(v -> save());
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -134,6 +139,7 @@ public final class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.addView(root);
         setContentView(scroll);
+        bindXposedService();
     }
 
     private void addGesture(LinearLayout root, String key, String label) {
@@ -141,7 +147,7 @@ public final class MainActivity extends Activity {
         Spinner spinner = new Spinner(this);
         String[] labels = actions.keySet().toArray(new String[0]);
         spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
-        String selected = prefs.getString(key + "Type", defaultType(key));
+        String selected = defaultType(key);
         int index = 0;
         for (String value : actions.values()) {
             if (value.equals(selected)) break;
@@ -162,7 +168,7 @@ public final class MainActivity extends Activity {
         value.setMaxLines(3);
         value.setPadding(dp(12), dp(10), dp(12), dp(10));
         value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
-        value.setText(prefs.getString(key + "Value", ""));
+        value.setText("");
         section.addView(value, margins(0, 10, 0, 0));
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -207,6 +213,10 @@ public final class MainActivity extends Activity {
 
     private void save() {
         try {
+            if (prefs == null) {
+                Toast.makeText(this, "请先在模块管理器中启用模块", Toast.LENGTH_LONG).show();
+                return;
+            }
             int key = Integer.parseInt(keyCode.getText().toString().trim());
             int dbl = Integer.parseInt(doubleMs.getText().toString().trim());
             int lng = Integer.parseInt(longMs.getText().toString().trim());
@@ -218,10 +228,47 @@ public final class MainActivity extends Activity {
                 e.putString(gesture + "Value", valueViews.get(gesture).getText().toString().trim());
             }
             e.apply();
-            setLauncherVisible(launcherVisible.isChecked());
             Toast.makeText(this, "已保存，下一次按键立即生效", Toast.LENGTH_SHORT).show();
         } catch (Exception ignored) {
             Toast.makeText(this, "请检查按键码和时间参数", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void bindXposedService() {
+        XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
+            @Override
+            public void onServiceBind(XposedService service) {
+                runOnUiThread(() -> {
+                    prefs = service.getRemotePreferences(Config.PREFS);
+                    loadPreferences();
+                    save.setEnabled(true);
+                });
+            }
+
+            @Override
+            public void onServiceDied(XposedService service) {
+                runOnUiThread(() -> {
+                    prefs = null;
+                    save.setEnabled(false);
+                });
+            }
+        });
+    }
+
+    private void loadPreferences() {
+        enabled.setChecked(prefs.getBoolean("enabled", true));
+        keyCode.setText(String.valueOf(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
+        doubleMs.setText(String.valueOf(prefs.getInt("doubleMs", Config.DEFAULT_DOUBLE_MS)));
+        longMs.setText(String.valueOf(prefs.getInt("longMs", Config.DEFAULT_LONG_MS)));
+        for (String gesture : typeViews.keySet()) {
+            String selected = prefs.getString(gesture + "Type", defaultType(gesture));
+            int index = 0;
+            for (String type : actions.values()) {
+                if (type.equals(selected)) break;
+                index++;
+            }
+            typeViews.get(gesture).setSelection(Math.min(index, actions.size() - 1));
+            valueViews.get(gesture).setText(prefs.getString(gesture + "Value", ""));
         }
     }
 

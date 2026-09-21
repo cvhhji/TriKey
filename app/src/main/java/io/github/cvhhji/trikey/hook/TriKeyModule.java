@@ -2,7 +2,7 @@ package io.github.cvhhji.trikey.hook;
 
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,9 +20,9 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
 public final class TriKeyModule extends XposedModule {
-    private static final Uri CONFIG_URI = Uri.parse("content://io.github.cvhhji.trikey.settings");
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Context systemContext;
+    private SharedPreferences preferences;
     private long downAt;
     private long lastUpAt;
     private boolean longFired;
@@ -32,6 +32,7 @@ public final class TriKeyModule extends XposedModule {
     @Override
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         try {
+            preferences = getRemotePreferences("trikey");
             Class<?> pwm = Class.forName("com.android.server.policy.PhoneWindowManager", false, param.getClassLoader());
             int installed = 0;
             for (Method method : pwm.getDeclaredMethods()) {
@@ -55,7 +56,7 @@ public final class TriKeyModule extends XposedModule {
                     if (event == null) return chain.proceed();
                     Context context = contextFrom(chain.getThisObject());
                     if (context == null) return chain.proceed();
-                    Bundle config = readConfig(context);
+                    Bundle config = readConfig();
                     if (!config.getBoolean("enabled", true)
                             || event.getKeyCode() != config.getInt("keyCode", 219)) {
                         return chain.proceed();
@@ -225,16 +226,28 @@ public final class TriKeyModule extends XposedModule {
         inject.invoke(manager, new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0), 0);
     }
 
-    private Bundle readConfig(Context context) {
-        try {
-            Bundle result = context.getContentResolver().call(CONFIG_URI, "getConfig", null, null);
-            if (result != null) return result;
-        } catch (Throwable error) {
-            log(Log.ERROR, "TriKey", "Unable to read settings", error);
+    private Bundle readConfig() {
+        SharedPreferences source = preferences;
+        Bundle config = new Bundle();
+        if (source == null) {
+            config.putBoolean("enabled", false);
+            return config;
         }
-        Bundle fallback = new Bundle();
-        fallback.putBoolean("enabled", false);
-        return fallback;
+        config.putBoolean("enabled", source.getBoolean("enabled", true));
+        config.putInt("keyCode", source.getInt("keyCode", 219));
+        config.putInt("doubleMs", source.getInt("doubleMs", 320));
+        config.putInt("longMs", source.getInt("longMs", 650));
+        for (String gesture : new String[]{"single", "double", "long"}) {
+            config.putString(gesture + "Type", source.getString(gesture + "Type", defaultType(gesture)));
+            config.putString(gesture + "Value", source.getString(gesture + "Value", ""));
+        }
+        return config;
+    }
+
+    private static String defaultType(String gesture) {
+        if ("single".equals(gesture)) return "wechat_pay";
+        if ("double".equals(gesture)) return "wechat_scan";
+        return "ocr";
     }
 
     private Context contextFrom(Object object) {
