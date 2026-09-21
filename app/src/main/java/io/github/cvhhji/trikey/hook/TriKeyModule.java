@@ -114,6 +114,30 @@ public final class TriKeyModule extends XposedModule {
         try {
             Intent intent;
             switch (type) {
+                case "wechat":
+                    intent = component("com.tencent.mm", "com.tencent.mm.ui.LauncherUI");
+                    break;
+                case "global_search":
+                    intent = component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.SearchHomeActivity");
+                    break;
+                case "settings":
+                    intent = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                    break;
+                case "app_search":
+                    intent = component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
+                    break;
+                case "translate":
+                    intent = component("com.coloros.translate", "com.coloros.translate.ui.MainActivity");
+                    break;
+                case "game_center":
+                    intent = component("com.oplus.games", "business.module.desktop.JumpSpaceActivity");
+                    break;
+                case "camera":
+                    intent = component("com.oplus.camera", "com.oplus.camera.Camera");
+                    break;
+                case "video_capture":
+                    intent = new Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE);
+                    break;
                 case "app":
                     intent = context.getPackageManager().getLaunchIntentForPackage(value);
                     if (intent == null) throw new IllegalArgumentException("Package has no launcher activity: " + value);
@@ -131,6 +155,32 @@ public final class TriKeyModule extends XposedModule {
                             .setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")
                             .putExtra("LauncherUI.Shortcut.LaunchType", "launch_type_scan_qrcode");
                     break;
+                case "alipay_pay":
+                    intent = alipay("20000056", "alipays://platformapi/startapp?appId=20000056");
+                    break;
+                case "alipay_scan":
+                    intent = alipay("10000007", "alipays://platformapi/startapp?appId=10000007&sourceId=scan3dtouch");
+                    break;
+                case "recorder":
+                    intent = new Intent("com.oplus.soundrecorder.LAUNCH_FROM_BRACKET_SPACE")
+                            .setClassName("com.coloros.soundrecorder", "oplus.multimedia.soundrecorder.slidebar.TransparentActivity")
+                            .putExtra("extra_enter_type", 3);
+                    break;
+                case "statusbar_expand":
+                    statusBar(context, "expandNotificationsPanel");
+                    return;
+                case "statusbar_collapse":
+                    statusBar(context, "collapsePanels");
+                    return;
+                case "screenshot":
+                    injectKey(KeyEvent.KEYCODE_SYSRQ);
+                    return;
+                case "back":
+                    injectKey(KeyEvent.KEYCODE_BACK);
+                    return;
+                case "lock_screen":
+                    injectKey(KeyEvent.KEYCODE_POWER);
+                    return;
                 case "ocr":
                     intent = new Intent("oplus.intent.action.DIRECT_SIDEBAR_SERVICE")
                             .setPackage("com.coloros.smartsidebar")
@@ -146,6 +196,33 @@ public final class TriKeyModule extends XposedModule {
         } catch (Throwable error) {
             log(Log.ERROR, "TriKey", "Action failed for " + gesture + ": " + type, error);
         }
+    }
+
+    private static Intent component(String packageName, String className) {
+        return new Intent(Intent.ACTION_MAIN).setClassName(packageName, className);
+    }
+
+    private static Intent alipay(String appId, String scheme) {
+        return new Intent(Intent.ACTION_VIEW)
+                .setClassName("com.eg.android.AlipayGphone", "com.alipay.android.phone.wallet.shortcuts.bridge.ShortcutsLauncherActivity")
+                .putExtra("KEY_APP_ID", appId)
+                .putExtra("KEY_SCHEME", scheme);
+    }
+
+    private static void statusBar(Context context, String methodName) throws ReflectiveOperationException {
+        Object service = context.getSystemService("statusbar");
+        Method method = service.getClass().getMethod(methodName);
+        method.setAccessible(true);
+        method.invoke(service);
+    }
+
+    private static void injectKey(int keyCode) throws ReflectiveOperationException {
+        Class<?> inputManager = Class.forName("android.hardware.input.InputManager");
+        Object manager = inputManager.getMethod("getInstance").invoke(null);
+        Method inject = inputManager.getMethod("injectInputEvent", android.view.InputEvent.class, int.class);
+        long now = SystemClock.uptimeMillis();
+        inject.invoke(manager, new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0), 0);
+        inject.invoke(manager, new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0), 0);
     }
 
     private Bundle readConfig(Context context) {

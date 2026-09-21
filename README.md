@@ -1,44 +1,40 @@
 # TriKey
 
-TriKey maps one hardware key to independent single-click, double-click and long-press actions on Android.
+将一个硬件按键映射为单击、双击和长按三种动作。
 
-## Requirements
+## 环境
 
-- Android 8.0 or newer
-- A libxposed API 102 compatible framework
-- The module scope must include `System Framework (system)`
+- Android 8.0 及以上
+- 支持 libxposed API 102 的框架
+- 作用域选择系统框架 `system`
 
-## Build
+## 使用
+
+1. 安装 APK。
+2. 在模块管理器中启用 TriKey，并确认作用域包含系统框架。
+3. 重启设备。
+4. 打开 TriKey，设置按键码和三个动作。
+
+默认按键码为 `219`，即 `KEYCODE_ASSIST`。不同机型的按键映射可能不同。
+
+## 动作
+
+- 微信、全局搜索、系统设置、应用搜索、翻译、游戏中心
+- 全屏识屏、相机、录像、录音
+- 微信和支付宝的付款码与扫一扫
+- 展开或收起状态栏、截图、返回、锁屏
+- 自定义应用和 Intent URI
+
+设置保存后立即生效。应用界面跟随系统深色模式，桌面图标可以在设置中隐藏。
+
+## 构建
 
 ```bash
 gradle :app:assembleRelease
 ```
 
-GitHub Actions builds the release APK and uploads it as the `TriKey-release` artifact.
+发布构建使用仓库 Actions Secrets 中的固定 PKCS12 签名，不在仓库中保存私钥。
 
-## Setup
-
-1. Install the APK.
-2. Enable TriKey in the framework manager.
-3. Confirm that `System Framework (system)` is selected, then reboot.
-4. Open TriKey and configure the key code and three gestures.
-
-TriKey follows the system light or dark theme. Its launcher icon can be hidden from the settings screen; the activity remains available from the LSPosed module list.
-
-The default key code is `219` (`KEYCODE_ASSIST`). Hardware mappings vary by model. If the key is not detected, use `adb shell getevent -l` to identify the physical event and its Android key mapping.
-
-## Supported actions
-
-- Launch an application by package name
-- Launch a custom Intent URI
-- WeChat payment code
-- WeChat scanner
-- ColorOS full-screen OCR
-
-## Design
-
-The module hooks the system policy key dispatch path. It has no polling loop and does not read `/dev/input` directly. Settings are loaded only when the configured key is pressed.
-
-## License
+## 许可
 
 Apache License 2.0

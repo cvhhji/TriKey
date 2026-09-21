@@ -9,6 +9,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -39,11 +41,27 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         prefs = getSharedPreferences(Config.PREFS, MODE_PRIVATE);
         actions.put("关闭", "none");
-        actions.put("启动应用", "app");
-        actions.put("Intent URI", "intent");
+        actions.put("打开微信", "wechat");
+        actions.put("全局搜索", "global_search");
+        actions.put("系统设置", "settings");
+        actions.put("应用搜索", "app_search");
+        actions.put("翻译", "translate");
+        actions.put("游戏中心", "game_center");
+        actions.put("全屏识屏", "ocr");
+        actions.put("相机", "camera");
+        actions.put("录像", "video_capture");
         actions.put("微信付款码", "wechat_pay");
         actions.put("微信扫一扫", "wechat_scan");
-        actions.put("全屏识屏", "ocr");
+        actions.put("支付宝付款码", "alipay_pay");
+        actions.put("支付宝扫一扫", "alipay_scan");
+        actions.put("录音", "recorder");
+        actions.put("展开状态栏", "statusbar_expand");
+        actions.put("收起状态栏", "statusbar_collapse");
+        actions.put("快速截图", "screenshot");
+        actions.put("返回", "back");
+        actions.put("锁屏", "lock_screen");
+        actions.put("自定义应用", "app");
+        actions.put("自定义 Intent", "intent");
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -108,7 +126,7 @@ public final class MainActivity extends Activity {
         saveParams.setMargins(0, dp(20), 0, dp(14));
         root.addView(save, saveParams);
 
-        TextView hint = text("启动应用时填写包名；Intent URI 可填写完整 URI。默认按键码 219 为 KEYCODE_ASSIST，不同机型可能不同。", 12, false, R.color.text_tertiary);
+        TextView hint = text("默认按键码 219 为 KEYCODE_ASSIST，不同机型可能不同。", 12, false, R.color.text_tertiary);
         hint.setLineSpacing(0, 1.2f);
         root.addView(hint);
 
@@ -146,6 +164,19 @@ public final class MainActivity extends Activity {
         value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
         value.setText(prefs.getString(key + "Value", ""));
         section.addView(value, margins(0, 10, 0, 0));
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String type = actions.get(String.valueOf(parent.getItemAtPosition(position)));
+                value.setVisibility("app".equals(type) || "intent".equals(type) ? View.VISIBLE : View.GONE);
+                value.setHint("app".equals(type) ? "应用包名" : "Intent URI");
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                value.setVisibility(View.GONE);
+            }
+        });
         root.addView(section, margins(0, 14, 0, 0));
         typeViews.put(key, spinner);
         valueViews.put(key, value);
