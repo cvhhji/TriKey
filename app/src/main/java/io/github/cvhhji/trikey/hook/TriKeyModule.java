@@ -266,6 +266,18 @@ public final class TriKeyModule extends XposedModule {
                 type = type.getSuperclass();
             }
         }
+        try {
+            Class<?> activityThread = Class.forName("android.app.ActivityThread");
+            Object thread = activityThread.getMethod("currentActivityThread").invoke(null);
+            if (thread != null) {
+                Object context = activityThread.getMethod("getSystemContext").invoke(thread);
+                if (context instanceof Context) {
+                    systemContext = (Context) context;
+                    return systemContext;
+                }
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
         return null;
     }
 
