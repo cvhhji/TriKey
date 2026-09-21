@@ -9,7 +9,7 @@ val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASS
 
 android {
     namespace = "io.github.cvhhji.trikey"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.cvhhji.trikey"
