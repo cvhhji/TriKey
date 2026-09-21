@@ -18,6 +18,7 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -36,4 +37,3 @@ android {
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
 }
-
