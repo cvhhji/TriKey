@@ -1,12 +1,16 @@
 package io.github.cvhhji.trikey.hook;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.util.Log;
 import android.view.KeyEvent;
 
@@ -244,10 +248,9 @@ public final class TriKeyModule extends XposedModule {
                     return;
                 case "ocr":
                     intent = new Intent("oplus.intent.action.DIRECT_SIDEBAR_SERVICE")
-                            .setPackage("com.coloros.smartsidebar")
                             .putExtra("extra_entrance_function", "full_screen_ocr")
                             .putExtra("triggered_app", "com.coloros.smartsidebar");
-                    context.startForegroundService(intent);
+                    startResolvedForegroundService(context, intent);
                     return;
                 default:
                     return;
@@ -268,6 +271,21 @@ public final class TriKeyModule extends XposedModule {
                 .setClassName("com.eg.android.AlipayGphone", "com.alipay.android.phone.wallet.shortcuts.bridge.ShortcutsLauncherActivity")
                 .putExtra("KEY_APP_ID", appId)
                 .putExtra("KEY_SCHEME", scheme);
+    }
+
+    private void startResolvedForegroundService(Context context, Intent intent) {
+        int flags = PackageManager.MATCH_SYSTEM_ONLY
+                | PackageManager.MATCH_DIRECT_BOOT_AWARE
+                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
+        ResolveInfo resolved = context.getPackageManager().resolveService(intent, flags);
+        if (resolved == null || resolved.serviceInfo == null) {
+            throw new IllegalStateException("No system service handles " + intent.getAction());
+        }
+        ComponentName component = new ComponentName(
+                resolved.serviceInfo.packageName, resolved.serviceInfo.name);
+        intent.setComponent(component);
+        log(Log.INFO, TAG, "Resolved foreground service: " + component.flattenToShortString());
+        context.createContextAsUser(UserHandle.SYSTEM, 0).startForegroundService(intent);
     }
 
     private static void statusBar(Context context, String methodName) throws ReflectiveOperationException {
