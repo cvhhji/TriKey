@@ -138,7 +138,15 @@ public final class TriKeyModule extends XposedModule {
         if (event.getAction() != KeyEvent.ACTION_UP) return;
         if (longTask != null) eventHandler.removeCallbacks(longTask);
         longTask = null;
-        if (longFired || SystemClock.uptimeMillis() - downAt >= longMs) return;
+        long heldMs = Math.max(
+                SystemClock.uptimeMillis() - downAt,
+                event.getEventTime() - event.getDownTime());
+        if (longFired) return;
+        if (heldMs >= longMs) {
+            longFired = true;
+            execute(context, config, "long");
+            return;
+        }
         long now = SystemClock.uptimeMillis();
         if (lastUpAt != 0 && now - lastUpAt <= doubleMs) {
             if (singleTask != null) eventHandler.removeCallbacks(singleTask);
@@ -163,6 +171,7 @@ public final class TriKeyModule extends XposedModule {
     private void execute(Context context, Bundle config, String gesture) {
         String type = config.getString(gesture + "Type", "none");
         String value = config.getString(gesture + "Value", "");
+        log(Log.INFO, TAG, "Gesture fired: gesture=" + gesture + ", type=" + type);
         try {
             Intent intent;
             switch (type) {
