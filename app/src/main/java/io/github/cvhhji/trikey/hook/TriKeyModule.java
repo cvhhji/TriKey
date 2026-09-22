@@ -285,7 +285,7 @@ public final class TriKeyModule extends XposedModule {
                 resolved.serviceInfo.packageName, resolved.serviceInfo.name);
         intent.setComponent(component);
         log(Log.INFO, TAG, "Resolved foreground service: " + component.flattenToShortString());
-        context.createContextAsUser(UserHandle.SYSTEM, 0).startForegroundService(intent);
+        context.createContextAsUser(UserHandle.of(0), 0).startForegroundService(intent);
     }
 
     private static void statusBar(Context context, String methodName) throws ReflectiveOperationException {
