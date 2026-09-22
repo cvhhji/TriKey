@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.cvhhji.trikey"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.2.4"
+        versionCode = 8
+        versionName = "1.2.5"
     }
 
     signingConfigs {
@@ -33,8 +33,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            isMinifyEnabled = false
             if (signingStoreFile != null) {
                 signingConfig = signingConfigs.getByName("stable")
             }

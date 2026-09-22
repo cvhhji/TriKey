@@ -18,6 +18,7 @@ import io.github.cvhhji.trikey.Config;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 
 public final class TriKeyModule extends XposedModule {
     private static final String TAG = "TriKey";
@@ -34,6 +35,11 @@ public final class TriKeyModule extends XposedModule {
     private boolean longFired;
     private Runnable longTask;
     private Runnable singleTask;
+
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        log(Log.INFO, TAG, "API 102 module loaded in " + param.getProcessName());
+    }
 
     @Override
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
