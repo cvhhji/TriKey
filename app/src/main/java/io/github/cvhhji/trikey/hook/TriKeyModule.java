@@ -70,7 +70,7 @@ public final class TriKeyModule extends XposedModule {
             for (Method method : target.getDeclaredMethods()) {
                 if (!methodName.equals(method.getName()) || !hasKeyEventParameter(method)) continue;
                 method.setAccessible(true);
-                hookMethod(method, OPLUS_POLICY_CLASS.equals(className));
+                hookMethod(method);
                 installed++;
             }
             return installed;
@@ -90,7 +90,7 @@ public final class TriKeyModule extends XposedModule {
         return false;
     }
 
-    private void hookMethod(Method method, boolean colorOsShortcutEntry) {
+    private void hookMethod(Method method) {
         hook(method)
                 .setId("trikey:" + method.toGenericString())
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -103,8 +103,7 @@ public final class TriKeyModule extends XposedModule {
                         if (context == null) return result;
                         Bundle config = readConfig();
                         if (!config.getBoolean("enabled", true)
-                                || (!colorOsShortcutEntry
-                                && event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE))) {
+                                || event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE)) {
                             return result;
                         }
                         log(Log.INFO, TAG, "Shortcut entry received: action=" + event.getAction()
