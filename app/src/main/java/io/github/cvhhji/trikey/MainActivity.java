@@ -131,7 +131,7 @@ public final class MainActivity extends Activity {
         saveParams.setMargins(0, dp(20), 0, dp(14));
         root.addView(save, saveParams);
 
-        TextView hint = text("默认按键码 219 为 KEYCODE_ASSIST，不同机型可能不同。", 12, false, R.color.text_tertiary);
+        TextView hint = text("ColorOS 实体快捷键默认按键码为 780，不同系统版本可能不同。", 12, false, R.color.text_tertiary);
         hint.setLineSpacing(0, 1.2f);
         root.addView(hint);
 
@@ -257,7 +257,11 @@ public final class MainActivity extends Activity {
 
     private void loadPreferences() {
         enabled.setChecked(prefs.getBoolean("enabled", true));
-        keyCode.setText(String.valueOf(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
+        int savedKeyCode = Config.normalizeKeyCode(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
+        keyCode.setText(String.valueOf(savedKeyCode));
+        if (prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE) == Config.LEGACY_DEFAULT_KEY_CODE) {
+            prefs.edit().putInt("keyCode", Config.DEFAULT_KEY_CODE).apply();
+        }
         doubleMs.setText(String.valueOf(prefs.getInt("doubleMs", Config.DEFAULT_DOUBLE_MS)));
         longMs.setText(String.valueOf(prefs.getInt("longMs", Config.DEFAULT_LONG_MS)));
         for (String gesture : typeViews.keySet()) {

@@ -10,16 +10,22 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
 
-import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 
+import io.github.cvhhji.trikey.Config;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 
 public final class TriKeyModule extends XposedModule {
+    private static final String TAG = "TriKey";
+    private static final String OPLUS_POLICY_CLASS =
+            "com.android.server.policy.StrategyActionButtonKeyLaunchApp";
+    private static final String OPLUS_POLICY_METHOD = "actionInterceptKeyBeforeQueueing";
+    private static final String AOSP_POLICY_CLASS = "com.android.server.policy.PhoneWindowManager";
+    private static final String AOSP_POLICY_METHOD = "interceptKeyBeforeQueueing";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Context systemContext;
     private SharedPreferences preferences;
@@ -33,18 +39,45 @@ public final class TriKeyModule extends XposedModule {
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         try {
             preferences = getRemotePreferences("trikey");
-            Class<?> pwm = Class.forName("com.android.server.policy.PhoneWindowManager", false, param.getClassLoader());
+            int installed = installHooks(param.getClassLoader(), OPLUS_POLICY_CLASS, OPLUS_POLICY_METHOD);
+            if (installed > 0) {
+                log(Log.INFO, TAG, "Using ColorOS shortcut-key policy hook; installed "
+                        + installed + " hook(s)");
+            } else {
+                installed = installHooks(param.getClassLoader(), AOSP_POLICY_CLASS, AOSP_POLICY_METHOD);
+                log(Log.WARN, TAG, "ColorOS shortcut-key policy was unavailable; installed "
+                        + installed + " PhoneWindowManager fallback hook(s)");
+            }
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to install hooks", error);
+        }
+    }
+
+    private int installHooks(ClassLoader classLoader, String className, String methodName) {
+        try {
+            Class<?> target = Class.forName(className, false, classLoader);
             int installed = 0;
-            for (Method method : pwm.getDeclaredMethods()) {
-                if (!"interceptKeyBeforeQueueing".equals(method.getName())) continue;
+            for (Method method : target.getDeclaredMethods()) {
+                if (!methodName.equals(method.getName()) || !hasKeyEventParameter(method)) continue;
                 method.setAccessible(true);
                 hookMethod(method);
                 installed++;
             }
-            log(Log.INFO, "TriKey", "Installed " + installed + " key interception hook(s)");
+            return installed;
+        } catch (ClassNotFoundException error) {
+            log(Log.WARN, TAG, "Hook class not found: " + className);
+            return 0;
         } catch (Throwable error) {
-            log(Log.ERROR, "TriKey", "Unable to install hooks", error);
+            log(Log.ERROR, TAG, "Unable to hook " + className + "." + methodName, error);
+            return 0;
         }
+    }
+
+    private static boolean hasKeyEventParameter(Method method) {
+        for (Class<?> type : method.getParameterTypes()) {
+            if (KeyEvent.class.isAssignableFrom(type)) return true;
+        }
+        return false;
     }
 
     private void hookMethod(Method method) {
@@ -58,9 +91,12 @@ public final class TriKeyModule extends XposedModule {
                     if (context == null) return chain.proceed();
                     Bundle config = readConfig();
                     if (!config.getBoolean("enabled", true)
-                            || event.getKeyCode() != config.getInt("keyCode", 219)) {
+                            || event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE)) {
                         return chain.proceed();
                     }
+                    log(Log.INFO, TAG, "Shortcut key received: action=" + event.getAction()
+                            + ", keyCode=" + event.getKeyCode()
+                            + ", repeat=" + event.getRepeatCount());
                     handle(event, context, config);
                     return zeroFor(method.getReturnType());
                 });
@@ -195,7 +231,7 @@ public final class TriKeyModule extends XposedModule {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             context.startActivity(intent);
         } catch (Throwable error) {
-            log(Log.ERROR, "TriKey", "Action failed for " + gesture + ": " + type, error);
+            log(Log.ERROR, TAG, "Action failed for " + gesture + ": " + type, error);
         }
     }
 
@@ -234,7 +270,8 @@ public final class TriKeyModule extends XposedModule {
             return config;
         }
         config.putBoolean("enabled", source.getBoolean("enabled", true));
-        config.putInt("keyCode", source.getInt("keyCode", 219));
+        config.putInt("keyCode", Config.normalizeKeyCode(
+                source.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
         config.putInt("doubleMs", source.getInt("doubleMs", 320));
         config.putInt("longMs", source.getInt("longMs", 650));
         for (String gesture : new String[]{"single", "double", "long"}) {
