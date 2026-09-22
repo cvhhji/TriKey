@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.cvhhji.trikey"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.2.3"
+        versionCode = 7
+        versionName = "1.2.4"
     }
 
     signingConfigs {

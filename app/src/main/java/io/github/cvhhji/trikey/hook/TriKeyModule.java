@@ -26,7 +26,7 @@ public final class TriKeyModule extends XposedModule {
     private static final String OPLUS_POLICY_METHOD = "actionInterceptKeyBeforeQueueing";
     private static final String AOSP_POLICY_CLASS = "com.android.server.policy.PhoneWindowManager";
     private static final String AOSP_POLICY_METHOD = "interceptKeyBeforeQueueing";
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Handler handler;
     private Context systemContext;
     private SharedPreferences preferences;
     private long downAt;
@@ -38,6 +38,7 @@ public final class TriKeyModule extends XposedModule {
     @Override
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         try {
+            handler = new Handler(Looper.getMainLooper());
             preferences = getRemotePreferences("trikey");
             int installed = installHooks(param.getClassLoader(), OPLUS_POLICY_CLASS, OPLUS_POLICY_METHOD);
             if (installed > 0) {
@@ -60,7 +61,7 @@ public final class TriKeyModule extends XposedModule {
             for (Method method : target.getDeclaredMethods()) {
                 if (!methodName.equals(method.getName()) || !hasKeyEventParameter(method)) continue;
                 method.setAccessible(true);
-                hookMethod(method);
+                hookMethod(method, OPLUS_POLICY_CLASS.equals(className));
                 installed++;
             }
             return installed;
@@ -80,36 +81,44 @@ public final class TriKeyModule extends XposedModule {
         return false;
     }
 
-    private void hookMethod(Method method) {
+    private void hookMethod(Method method, boolean colorOsShortcutEntry) {
         hook(method)
                 .setId("trikey:" + method.toGenericString())
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
-                    KeyEvent event = findEvent(chain.getArgs());
-                    if (event == null) return chain.proceed();
-                    Context context = contextFrom(chain.getThisObject());
-                    if (context == null) return chain.proceed();
-                    Bundle config = readConfig();
-                    if (!config.getBoolean("enabled", true)
-                            || event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE)) {
-                        return chain.proceed();
+                    Object result = chain.proceed();
+                    try {
+                        KeyEvent event = findEvent(chain.getArgs());
+                        if (event == null) return result;
+                        Context context = contextFrom(chain.getThisObject());
+                        if (context == null) return result;
+                        Bundle config = readConfig();
+                        if (!config.getBoolean("enabled", true)
+                                || (!colorOsShortcutEntry
+                                && event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE))) {
+                            return result;
+                        }
+                        log(Log.INFO, TAG, "Shortcut entry received: action=" + event.getAction()
+                                + ", keyCode=" + event.getKeyCode()
+                                + ", repeat=" + event.getRepeatCount());
+                        handle(event, context, config);
+                    } catch (Throwable error) {
+                        log(Log.ERROR, TAG, "Shortcut observer failed after original hook chain", error);
                     }
-                    log(Log.INFO, TAG, "Shortcut key received: action=" + event.getAction()
-                            + ", keyCode=" + event.getKeyCode()
-                            + ", repeat=" + event.getRepeatCount());
-                    handle(event, context, config);
-                    return zeroFor(method.getReturnType());
+                    return result;
                 });
     }
 
     private synchronized void handle(KeyEvent event, Context context, Bundle config) {
+        Handler eventHandler = handler;
+        if (eventHandler == null) return;
         if (event.getRepeatCount() > 0) return;
         int longMs = config.getInt("longMs", 650);
         int doubleMs = config.getInt("doubleMs", 320);
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             downAt = SystemClock.uptimeMillis();
             longFired = false;
-            if (longTask != null) handler.removeCallbacks(longTask);
+            if (longTask != null) eventHandler.removeCallbacks(longTask);
             Bundle snapshot = new Bundle(config);
             longTask = () -> {
                 synchronized (TriKeyModule.this) {
@@ -117,16 +126,16 @@ public final class TriKeyModule extends XposedModule {
                     execute(context, snapshot, "long");
                 }
             };
-            handler.postDelayed(longTask, longMs);
+            eventHandler.postDelayed(longTask, longMs);
             return;
         }
         if (event.getAction() != KeyEvent.ACTION_UP) return;
-        if (longTask != null) handler.removeCallbacks(longTask);
+        if (longTask != null) eventHandler.removeCallbacks(longTask);
         longTask = null;
         if (longFired || SystemClock.uptimeMillis() - downAt >= longMs) return;
         long now = SystemClock.uptimeMillis();
         if (lastUpAt != 0 && now - lastUpAt <= doubleMs) {
-            if (singleTask != null) handler.removeCallbacks(singleTask);
+            if (singleTask != null) eventHandler.removeCallbacks(singleTask);
             singleTask = null;
             lastUpAt = 0;
             execute(context, config, "double");
@@ -141,7 +150,7 @@ public final class TriKeyModule extends XposedModule {
                     }
                 }
             };
-            handler.postDelayed(singleTask, doubleMs);
+            eventHandler.postDelayed(singleTask, doubleMs);
         }
     }
 
@@ -323,16 +332,4 @@ public final class TriKeyModule extends XposedModule {
         return null;
     }
 
-    private static Object zeroFor(Class<?> type) {
-        if (type == void.class) return null;
-        if (type == boolean.class) return false;
-        if (type == long.class) return 0L;
-        if (type == float.class) return 0f;
-        if (type == double.class) return 0d;
-        if (type == byte.class) return (byte) 0;
-        if (type == short.class) return (short) 0;
-        if (type == char.class) return (char) 0;
-        if (type.isPrimitive()) return 0;
-        return null;
-    }
 }
