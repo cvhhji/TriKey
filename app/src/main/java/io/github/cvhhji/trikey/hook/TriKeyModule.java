@@ -10,7 +10,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.os.UserHandle;
 import android.util.Log;
 import android.view.KeyEvent;
 
@@ -285,7 +284,7 @@ public final class TriKeyModule extends XposedModule {
                 resolved.serviceInfo.packageName, resolved.serviceInfo.name);
         intent.setComponent(component);
         log(Log.INFO, TAG, "Resolved foreground service: " + component.flattenToShortString());
-        context.createContextAsUser(UserHandle.of(0), 0).startForegroundService(intent);
+        context.startForegroundService(intent);
     }
 
     private static void statusBar(Context context, String methodName) throws ReflectiveOperationException {
