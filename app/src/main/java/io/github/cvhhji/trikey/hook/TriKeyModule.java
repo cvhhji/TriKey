@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.InputDevice;
+import android.view.InputEvent;
 import android.view.KeyEvent;
 
 import java.lang.reflect.Field;
@@ -275,13 +277,33 @@ public final class TriKeyModule extends XposedModule {
         method.invoke(service);
     }
 
-    private static void injectKey(int keyCode) throws ReflectiveOperationException {
-        Class<?> inputManager = Class.forName("android.hardware.input.InputManager");
-        Object manager = inputManager.getMethod("getInstance").invoke(null);
-        Method inject = inputManager.getMethod("injectInputEvent", android.view.InputEvent.class, int.class);
+    private void injectKey(int keyCode) throws ReflectiveOperationException {
+        Class<?> inputManager;
+        Object manager;
+        Method inject;
+        try {
+            inputManager = Class.forName("android.hardware.input.InputManagerGlobal");
+            manager = inputManager.getMethod("getInstance").invoke(null);
+            inject = inputManager.getMethod("injectInputEvent", InputEvent.class, int.class);
+        } catch (ClassNotFoundException | NoSuchMethodException unavailable) {
+            // InputManagerGlobal replaced InputManager.getInstance() on newer Android releases.
+            inputManager = Class.forName("android.hardware.input.InputManager");
+            manager = inputManager.getMethod("getInstance").invoke(null);
+            inject = inputManager.getMethod("injectInputEvent", InputEvent.class, int.class);
+        }
         long now = SystemClock.uptimeMillis();
-        inject.invoke(manager, new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0), 0);
-        inject.invoke(manager, new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0), 0);
+        int flags = KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY;
+        KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0,
+                0, -1, 0, flags, InputDevice.SOURCE_KEYBOARD);
+        KeyEvent up = new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0,
+                0, -1, 0, flags, InputDevice.SOURCE_KEYBOARD);
+        boolean downAccepted = Boolean.TRUE.equals(inject.invoke(manager, down, 0));
+        boolean upAccepted = Boolean.TRUE.equals(inject.invoke(manager, up, 0));
+        if (!downAccepted || !upAccepted) {
+            throw new IllegalStateException("Input event injection rejected: keyCode=" + keyCode
+                    + ", down=" + downAccepted + ", up=" + upAccepted);
+        }
+        log(Log.INFO, TAG, "Injected key event: keyCode=" + keyCode + ", down/up accepted");
     }
 
     private Bundle readConfig() {
