@@ -30,5 +30,3 @@
 ```shell
 ./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
 ```
-
-推送形如 `v1.3.0` 的版本标签后，GitHub Actions 会在测试、Lint、构建和签名验证全部通过后创建对应 Release，并上传 `TriKey-v1.3.0.apk`。
