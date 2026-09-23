@@ -22,11 +22,3 @@
 - 自定义应用和 Intent URI
 
 设置保存后立即生效
-
-## 构建
-
-项目附带 Gradle Wrapper。使用 JDK 17 执行：
-
-```shell
-./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
-```
