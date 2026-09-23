@@ -22,13 +22,3 @@
 - 自定义应用和 Intent URI
 
 设置保存后立即生效
-
-## 构建
-
-项目附带 Gradle Wrapper。使用 JDK 17 执行：
-
-```shell
-./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
-```
-
-推送形如 `vX.Y.Z` 的版本标签后，GitHub Actions 会在测试、Lint、构建和签名验证全部通过后创建对应 Release，并上传 `TriKey-vX.Y.Z.apk`。
