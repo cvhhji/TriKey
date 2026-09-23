@@ -9,14 +9,21 @@ val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASS
 
 android {
     namespace = "io.github.cvhhji.trikey"
-    compileSdk = 37
+    enableKotlin = false
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 0
+        }
+    }
 
     defaultConfig {
         applicationId = "io.github.cvhhji.trikey"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 11
-        versionName = "1.2.8"
+        targetSdk {
+            version = release(37)
+        }
+        versionCode = 12
+        versionName = "1.3.0"
     }
 
     signingConfigs {
@@ -55,4 +62,5 @@ android {
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")
+    testImplementation("junit:junit:4.13.2")
 }

@@ -1,5 +1,6 @@
 package io.github.cvhhji.trikey.hook;
 
+import android.annotation.SuppressLint;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -31,13 +32,9 @@ public final class TriKeyModule extends XposedModule {
     private static final String AOSP_POLICY_CLASS = "com.android.server.policy.PhoneWindowManager";
     private static final String AOSP_POLICY_METHOD = "interceptKeyBeforeQueueing";
     private Handler handler;
+    private KeyGestureDetector<Bundle> gestureDetector;
     private Context systemContext;
     private SharedPreferences preferences;
-    private long downAt;
-    private long lastUpAt;
-    private boolean longFired;
-    private Runnable longTask;
-    private Runnable singleTask;
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -48,6 +45,17 @@ public final class TriKeyModule extends XposedModule {
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         try {
             handler = new Handler(Looper.getMainLooper());
+            gestureDetector = new KeyGestureDetector<>(new KeyGestureDetector.Scheduler() {
+                @Override
+                public void postDelayed(Runnable task, long delayMs) {
+                    handler.postDelayed(task, delayMs);
+                }
+
+                @Override
+                public void removeCallbacks(Runnable task) {
+                    handler.removeCallbacks(task);
+                }
+            }, (gesture, snapshot) -> execute(systemContext, snapshot, gesture));
             preferences = getRemotePreferences("trikey");
             int installed = installHooks(param.getClassLoader(), OPLUS_POLICY_CLASS, OPLUS_POLICY_METHOD);
             if (installed > 0) {
@@ -95,79 +103,52 @@ public final class TriKeyModule extends XposedModule {
                 .setId("trikey:" + method.toGenericString())
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
-                    Object result = chain.proceed();
                     try {
                         KeyEvent event = findEvent(chain.getArgs());
-                        if (event == null) return result;
-                        Context context = contextFrom(chain.getThisObject());
-                        if (context == null) return result;
-                        Bundle config = readConfig();
-                        if (!config.getBoolean("enabled", true)
-                                || event.getKeyCode() != config.getInt("keyCode", Config.DEFAULT_KEY_CODE)) {
-                            return result;
+                        if (event == null) return chain.proceed();
+                        SharedPreferences source = preferences;
+                        if (source == null || !source.getBoolean("enabled", true)) {
+                            KeyGestureDetector<Bundle> detector = gestureDetector;
+                            if (detector != null) detector.cancel();
+                            return chain.proceed();
                         }
+                        int keyCode = Config.normalizeKeyCode(
+                                source.getInt("keyCode", Config.DEFAULT_KEY_CODE));
+                        if (event.getKeyCode() != keyCode) return chain.proceed();
+                        Context context = contextFrom(chain.getThisObject());
+                        if (context == null) return chain.proceed();
+                        Bundle config = readConfig();
                         log(Log.INFO, TAG, "Shortcut entry received: action=" + event.getAction()
                                 + ", keyCode=" + event.getKeyCode()
                                 + ", repeat=" + event.getRepeatCount());
                         handle(event, context, config);
+                        if (config.getBoolean("consumeOriginal", false)) {
+                            return defaultValue(method.getReturnType());
+                        }
                     } catch (Throwable error) {
-                        log(Log.ERROR, TAG, "Shortcut observer failed after original hook chain", error);
+                        log(Log.ERROR, TAG, "Shortcut observer failed", error);
                     }
-                    return result;
+                    return chain.proceed();
                 });
     }
 
-    private synchronized void handle(KeyEvent event, Context context, Bundle config) {
-        Handler eventHandler = handler;
-        if (eventHandler == null) return;
+    private void handle(KeyEvent event, Context context, Bundle config) {
+        KeyGestureDetector<Bundle> detector = gestureDetector;
+        if (detector == null) return;
         if (event.getRepeatCount() > 0) return;
         int longMs = config.getInt("longMs", 650);
         int doubleMs = config.getInt("doubleMs", 320);
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            downAt = SystemClock.uptimeMillis();
-            longFired = false;
-            if (longTask != null) eventHandler.removeCallbacks(longTask);
-            Bundle snapshot = new Bundle(config);
-            longTask = () -> {
-                synchronized (TriKeyModule.this) {
-                    longFired = true;
-                    execute(context, snapshot, "long");
-                }
-            };
-            eventHandler.postDelayed(longTask, longMs);
+            systemContext = context;
+            detector.onDown(SystemClock.uptimeMillis(), doubleMs, longMs, new Bundle(config));
             return;
         }
         if (event.getAction() != KeyEvent.ACTION_UP) return;
-        if (longTask != null) eventHandler.removeCallbacks(longTask);
-        longTask = null;
         long heldMs = Math.max(
-                SystemClock.uptimeMillis() - downAt,
+                SystemClock.uptimeMillis() - event.getDownTime(),
                 event.getEventTime() - event.getDownTime());
-        if (longFired) return;
-        if (heldMs >= longMs) {
-            longFired = true;
-            execute(context, config, "long");
-            return;
-        }
-        long now = SystemClock.uptimeMillis();
-        if (lastUpAt != 0 && now - lastUpAt <= doubleMs) {
-            if (singleTask != null) eventHandler.removeCallbacks(singleTask);
-            singleTask = null;
-            lastUpAt = 0;
-            execute(context, config, "double");
-        } else {
-            lastUpAt = now;
-            Bundle snapshot = new Bundle(config);
-            singleTask = () -> {
-                synchronized (TriKeyModule.this) {
-                    if (lastUpAt != 0) {
-                        lastUpAt = 0;
-                        execute(context, snapshot, "single");
-                    }
-                }
-            };
-            eventHandler.postDelayed(singleTask, doubleMs);
-        }
+        systemContext = context;
+        detector.onUp(SystemClock.uptimeMillis(), heldMs, doubleMs, longMs, new Bundle(config));
     }
 
     private void execute(Context context, Bundle config, String gesture) {
@@ -286,6 +267,7 @@ public final class TriKeyModule extends XposedModule {
         context.startForegroundService(intent);
     }
 
+    @SuppressLint("WrongConstant")
     private static void statusBar(Context context, String methodName) throws ReflectiveOperationException {
         Object service = context.getSystemService("statusbar");
         Method method = service.getClass().getMethod(methodName);
@@ -310,6 +292,7 @@ public final class TriKeyModule extends XposedModule {
             return config;
         }
         config.putBoolean("enabled", source.getBoolean("enabled", true));
+        config.putBoolean("consumeOriginal", source.getBoolean("consumeOriginal", false));
         config.putInt("keyCode", Config.normalizeKeyCode(
                 source.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
         config.putInt("doubleMs", source.getInt("doubleMs", 320));
@@ -321,12 +304,26 @@ public final class TriKeyModule extends XposedModule {
         return config;
     }
 
+    private static Object defaultValue(Class<?> type) {
+        if (!type.isPrimitive() || type == void.class) return null;
+        if (type == boolean.class) return false;
+        if (type == char.class) return '\0';
+        if (type == byte.class) return (byte) 0;
+        if (type == short.class) return (short) 0;
+        if (type == int.class) return 0;
+        if (type == long.class) return 0L;
+        if (type == float.class) return 0F;
+        if (type == double.class) return 0D;
+        throw new AssertionError("Unknown primitive return type: " + type);
+    }
+
     private static String defaultType(String gesture) {
         if ("single".equals(gesture)) return "wechat_pay";
         if ("double".equals(gesture)) return "wechat_scan";
         return "ocr";
     }
 
+    @SuppressLint("PrivateApi")
     private Context contextFrom(Object object) {
         if (systemContext != null) return systemContext;
         Class<?> type = object.getClass();

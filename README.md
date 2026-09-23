@@ -9,6 +9,8 @@
 3. 重启设备。
 4. 打开 TriKey，设置按键码和三个动作。
 
+“替代系统原动作”默认关闭。若同一次按键还会触发 ColorOS 原有快捷功能，可开启该选项；遇到系统兼容问题时应保持关闭。
+
 默认按键码为 `780`，即 `KEYCODE_ASSIST`。不同机型的按键映射可能不同。
 
 ## 动作
@@ -20,3 +22,11 @@
 - 自定义应用和 Intent URI
 
 设置保存后立即生效
+
+## 构建
+
+项目附带 Gradle Wrapper。使用 JDK 17 执行：
+
+```shell
+./gradlew :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+```

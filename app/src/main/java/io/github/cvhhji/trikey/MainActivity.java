@@ -2,6 +2,7 @@ package io.github.cvhhji.trikey;
 
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
@@ -33,6 +34,7 @@ public final class MainActivity extends Activity {
     private final Map<String, Spinner> typeViews = new LinkedHashMap<>();
     private final Map<String, EditText> valueViews = new LinkedHashMap<>();
     private CheckBox enabled;
+    private CheckBox consumeOriginal;
     private Switch launcherVisible;
     private EditText keyCode;
     private EditText doubleMs;
@@ -98,6 +100,15 @@ public final class MainActivity extends Activity {
         enabled.setTextSize(16);
         enabled.setChecked(true);
         general.addView(enabled);
+
+        consumeOriginal = new CheckBox(this);
+        consumeOriginal.setText("替代系统原动作");
+        consumeOriginal.setTextColor(color(R.color.text_primary));
+        consumeOriginal.setTextSize(16);
+        consumeOriginal.setChecked(false);
+        general.addView(consumeOriginal, margins(0, 4, 0, 0));
+        general.addView(text("开启后目标按键只执行 TriKey 动作；遇到兼容问题时请关闭。", 12, false,
+                R.color.text_tertiary), margins(4, 0, 0, 0));
 
         launcherVisible = new Switch(this);
         launcherVisible.setText("在桌面显示图标");
@@ -217,11 +228,23 @@ public final class MainActivity extends Activity {
                 Toast.makeText(this, "请先在模块管理器中启用模块", Toast.LENGTH_LONG).show();
                 return;
             }
-            int key = Integer.parseInt(keyCode.getText().toString().trim());
-            int dbl = Integer.parseInt(doubleMs.getText().toString().trim());
-            int lng = Integer.parseInt(longMs.getText().toString().trim());
-            if (key < 1 || dbl < 100 || dbl > 1000 || lng < 250 || lng > 3000) throw new IllegalArgumentException();
-            SharedPreferences.Editor e = prefs.edit().putBoolean("enabled", enabled.isChecked()).putInt("keyCode", key).putInt("doubleMs", dbl).putInt("longMs", lng);
+            int key = parseNumber(keyCode, "按键码");
+            int dbl = parseNumber(doubleMs, "双击间隔");
+            int lng = parseNumber(longMs, "长按阈值");
+            if (key < 1) throw new IllegalArgumentException("按键码必须大于 0");
+            if (dbl < 100 || dbl > 1000) {
+                throw new IllegalArgumentException("双击间隔必须在 100–1000 毫秒之间");
+            }
+            if (lng < 250 || lng > 3000) {
+                throw new IllegalArgumentException("长按阈值必须在 250–3000 毫秒之间");
+            }
+            validateCustomActions();
+            SharedPreferences.Editor e = prefs.edit()
+                    .putBoolean("enabled", enabled.isChecked())
+                    .putBoolean("consumeOriginal", consumeOriginal.isChecked())
+                    .putInt("keyCode", key)
+                    .putInt("doubleMs", dbl)
+                    .putInt("longMs", lng);
             for (String gesture : typeViews.keySet()) {
                 String label = String.valueOf(typeViews.get(gesture).getSelectedItem());
                 e.putString(gesture + "Type", actions.get(label));
@@ -229,9 +252,47 @@ public final class MainActivity extends Activity {
             }
             e.apply();
             Toast.makeText(this, "已保存，下一次按键立即生效", Toast.LENGTH_SHORT).show();
+        } catch (IllegalArgumentException error) {
+            String message = error.getMessage();
+            Toast.makeText(this, message == null ? "请检查按键码和时间参数" : message,
+                    Toast.LENGTH_LONG).show();
         } catch (Exception ignored) {
-            Toast.makeText(this, "请检查按键码和时间参数", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "设置校验失败，请重试", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private static int parseNumber(EditText input, String label) {
+        try {
+            return Integer.parseInt(input.getText().toString().trim());
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException(label + "必须是整数");
+        }
+    }
+
+    private void validateCustomActions() {
+        for (String gesture : typeViews.keySet()) {
+            String label = String.valueOf(typeViews.get(gesture).getSelectedItem());
+            String type = actions.get(label);
+            String value = valueViews.get(gesture).getText().toString().trim();
+            if ("app".equals(type)) {
+                if (value.isEmpty() || getPackageManager().getLaunchIntentForPackage(value) == null) {
+                    throw new IllegalArgumentException(labelForGesture(gesture) + "：找不到可启动的应用包名");
+                }
+            } else if ("intent".equals(type)) {
+                try {
+                    if (value.isEmpty()) throw new IllegalArgumentException();
+                    Intent.parseUri(value, Intent.URI_INTENT_SCHEME);
+                } catch (Exception error) {
+                    throw new IllegalArgumentException(labelForGesture(gesture) + "：Intent URI 格式无效");
+                }
+            }
+        }
+    }
+
+    private static String labelForGesture(String gesture) {
+        if ("single".equals(gesture)) return "单击";
+        if ("double".equals(gesture)) return "双击";
+        return "长按";
     }
 
     private void bindXposedService() {
@@ -257,6 +318,7 @@ public final class MainActivity extends Activity {
 
     private void loadPreferences() {
         enabled.setChecked(prefs.getBoolean("enabled", true));
+        consumeOriginal.setChecked(prefs.getBoolean("consumeOriginal", false));
         int savedKeyCode = Config.normalizeKeyCode(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
         keyCode.setText(String.valueOf(savedKeyCode));
         if (prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE) == Config.LEGACY_DEFAULT_KEY_CODE) {
