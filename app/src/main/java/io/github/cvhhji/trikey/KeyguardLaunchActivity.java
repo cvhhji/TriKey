@@ -13,6 +13,9 @@ import android.view.WindowManager;
 public final class KeyguardLaunchActivity extends Activity {
     public static final String EXTRA_TARGET_INTENT = "io.github.cvhhji.trikey.extra.TARGET_INTENT";
     public static final String EXTRA_TARGET_IS_SERVICE = "io.github.cvhhji.trikey.extra.TARGET_IS_SERVICE";
+    public static final String EXTRA_SYSTEM_HANDOFF = "io.github.cvhhji.trikey.extra.SYSTEM_HANDOFF";
+    public static final String EXTRA_HANDOFF_ID = "io.github.cvhhji.trikey.extra.HANDOFF_ID";
+    public static final String ACTION_CANCEL_HANDOFF = "io.github.cvhhji.trikey.action.CANCEL_HANDOFF";
     private static final String TAG = "TriKey";
 
     private boolean dismissalRequested;
@@ -74,6 +77,7 @@ public final class KeyguardLaunchActivity extends Activity {
                 runOnUiThread(() -> {
                     boolean authenticated = !keyguard.isKeyguardLocked()
                             && !keyguard.isDeviceLocked();
+                    if (!authenticated) cancelSystemHandoff();
                     finishRequest(authenticated, authenticated
                             ? "System keyguard had already cleared"
                             : "System keyguard challenge could not be shown");
@@ -87,18 +91,24 @@ public final class KeyguardLaunchActivity extends Activity {
         completed = true;
         Log.i(TAG, "Keyguard dismissal result: authenticated=" + authenticated + ", reason=" + reason);
         if (authenticated) {
-            try {
-                Intent target = targetIntent();
-                if (target == null) throw new IllegalArgumentException("Missing target action");
-                if (getIntent().getBooleanExtra(EXTRA_TARGET_IS_SERVICE, false)) {
-                    startForegroundService(target);
-                } else {
-                    startActivity(target);
+            if (getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false)) {
+                Log.i(TAG, "Target was handed off during the system keyguard exit transition");
+            } else {
+                try {
+                    Intent target = targetIntent();
+                    if (target == null) throw new IllegalArgumentException("Missing target action");
+                    if (getIntent().getBooleanExtra(EXTRA_TARGET_IS_SERVICE, false)) {
+                        startForegroundService(target);
+                    } else {
+                        startActivity(target);
+                    }
+                    Log.i(TAG, "Screen-off target dispatched after keyguard authentication");
+                } catch (Throwable error) {
+                    Log.e(TAG, "Unable to dispatch screen-off target after authentication", error);
                 }
-                Log.i(TAG, "Screen-off target dispatched after keyguard authentication");
-            } catch (Throwable error) {
-                Log.e(TAG, "Unable to dispatch screen-off target after authentication", error);
             }
+        } else {
+            cancelSystemHandoff();
         }
         Log.i(TAG, reason);
         finish();
@@ -110,5 +120,15 @@ public final class KeyguardLaunchActivity extends Activity {
             return source.getParcelableExtra(EXTRA_TARGET_INTENT, Intent.class);
         }
         return source.getParcelableExtra(EXTRA_TARGET_INTENT);
+    }
+
+    private void cancelSystemHandoff() {
+        Intent source = getIntent();
+        if (!source.getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false)) return;
+        String id = source.getStringExtra(EXTRA_HANDOFF_ID);
+        if (id == null) return;
+        Intent cancel = new Intent(ACTION_CANCEL_HANDOFF)
+                .putExtra(EXTRA_HANDOFF_ID, id);
+        sendBroadcast(cancel);
     }
 }

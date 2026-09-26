@@ -3,15 +3,19 @@ package io.github.cvhhji.trikey.hook;
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
@@ -24,6 +28,7 @@ import io.github.cvhhji.trikey.KeyguardLaunchActivity;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.UUID;
 
 import io.github.cvhhji.trikey.Config;
 import io.github.libxposed.api.XposedInterface;
@@ -38,6 +43,10 @@ public final class TriKeyModule extends XposedModule {
     private static final String OPLUS_POLICY_METHOD = "actionInterceptKeyBeforeQueueing";
     private static final String AOSP_POLICY_CLASS = "com.android.server.policy.PhoneWindowManager";
     private static final String AOSP_POLICY_METHOD = "interceptKeyBeforeQueueing";
+    private static final String[] KEYGUARD_GOING_AWAY_CLASSES = {
+            "com.android.server.wm.ActivityTaskManagerService",
+            "com.android.server.am.ActivityManagerService"
+    };
     private Handler handler;
     private KeyGestureDetector<Bundle> gestureDetector;
     private Context systemContext;
@@ -47,6 +56,16 @@ public final class TriKeyModule extends XposedModule {
     private boolean currentPressWasSecond;
     private boolean currentPressScreenOff;
     private Runnable clearScreenOffGestureTask;
+    private volatile PendingKeyguardLaunch pendingKeyguardLaunch;
+    private boolean keyguardHandoffHookInstalled;
+    private boolean keyguardHandoffReceiverRegistered;
+    private final BroadcastReceiver keyguardHandoffCancelReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            cancelPendingKeyguardLaunch(intent.getStringExtra(
+                    KeyguardLaunchActivity.EXTRA_HANDOFF_ID));
+        }
+    };
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -78,6 +97,7 @@ public final class TriKeyModule extends XposedModule {
                 log(Log.WARN, TAG, "ColorOS shortcut-key policy was unavailable; installed "
                         + installed + " PhoneWindowManager fallback hook(s)");
             }
+            keyguardHandoffHookInstalled = installKeyguardHandoffHook(param.getClassLoader());
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Unable to install hooks", error);
         }
@@ -153,6 +173,7 @@ public final class TriKeyModule extends XposedModule {
         int doubleMs = config.getInt("doubleMs", 320);
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             systemContext = context;
+            ensureKeyguardHandoffCancelReceiver(context);
             currentPressWasSecond = pendingScreenOffGesture;
             if (clearScreenOffGestureTask != null) {
                 handler.removeCallbacks(clearScreenOffGestureTask);
@@ -381,6 +402,12 @@ public final class TriKeyModule extends XposedModule {
                 target = resolveForegroundServiceIntent(queued.context, target);
             }
             target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            String handoffId = keyguardHandoffHookInstalled ? UUID.randomUUID().toString() : null;
+            if (handoffId != null) {
+                pendingKeyguardLaunch = new PendingKeyguardLaunch(
+                        handoffId, queued.context, target, "ocr".equals(type),
+                        SystemClock.elapsedRealtime());
+            }
             ComponentName challengeComponent = new ComponentName(
                     BuildConfig.APPLICATION_ID,
                     KeyguardLaunchActivity.class.getName());
@@ -388,11 +415,104 @@ public final class TriKeyModule extends XposedModule {
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_INTENT, target)
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_IS_SERVICE, "ocr".equals(type))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            if (handoffId != null) {
+                challenge.putExtra(KeyguardLaunchActivity.EXTRA_SYSTEM_HANDOFF, true)
+                        .putExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID, handoffId);
+            }
             queued.context.startActivity(challenge);
-            log(Log.INFO, TAG, "Started system keyguard challenge for screen-off action: " + type);
+            log(Log.INFO, TAG, handoffId == null
+                    ? "Started compatibility keyguard challenge for screen-off action: " + type
+                    : "Queued screen-off action for the native keyguard exit transition: " + type);
         } catch (Throwable error) {
+            PendingKeyguardLaunch pending = pendingKeyguardLaunch;
+            if (pending != null) cancelPendingKeyguardLaunch(pending.id);
             log(Log.ERROR, TAG, "Unable to start keyguard challenge for " + queued.gesture, error);
         }
+    }
+
+    private boolean installKeyguardHandoffHook(ClassLoader classLoader) {
+        for (String className : KEYGUARD_GOING_AWAY_CLASSES) {
+            try {
+                Class<?> target = Class.forName(className, false, classLoader);
+                for (Method method : target.getDeclaredMethods()) {
+                    if (!"keyguardGoingAway".equals(method.getName())
+                            || method.getParameterCount() != 1
+                            || method.getParameterTypes()[0] != int.class) continue;
+                    method.setAccessible(true);
+                    hook(method)
+                            .setId("trikey:keyguard-going-away:" + method.toGenericString())
+                            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                            .intercept(chain -> {
+                                if (isKeyguardControlCaller()) dispatchPendingKeyguardLaunch();
+                                return chain.proceed();
+                            });
+                    log(Log.INFO, TAG, "Installed native keyguard transition handoff: "
+                            + method.toGenericString());
+                    return true;
+                }
+            } catch (ClassNotFoundException unavailable) {
+                log(Log.DEBUG, TAG, "Keyguard transition class unavailable: " + className);
+            } catch (Throwable error) {
+                log(Log.WARN, TAG, "Unable to hook keyguard transition in " + className, error);
+            }
+        }
+        log(Log.WARN, TAG, "Native keyguard transition handoff unavailable; using activity callback");
+        return false;
+    }
+
+    private boolean isKeyguardControlCaller() {
+        if (Binder.getCallingUid() == Process.SYSTEM_UID) return true;
+        Context context = systemContext;
+        return context != null && context.checkCallingPermission(
+                "android.permission.CONTROL_KEYGUARD") == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void ensureKeyguardHandoffCancelReceiver(Context context) {
+        if (keyguardHandoffReceiverRegistered) return;
+        try {
+            IntentFilter filter = new IntentFilter(KeyguardLaunchActivity.ACTION_CANCEL_HANDOFF);
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(keyguardHandoffCancelReceiver, filter,
+                        Context.RECEIVER_EXPORTED);
+            } else {
+                context.registerReceiver(keyguardHandoffCancelReceiver, filter);
+            }
+            keyguardHandoffReceiverRegistered = true;
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to register keyguard handoff cancellation receiver", error);
+        }
+    }
+
+    private void dispatchPendingKeyguardLaunch() {
+        PendingKeyguardLaunch pending = pendingKeyguardLaunch;
+        if (pending == null) return;
+        synchronized (this) {
+            if (pendingKeyguardLaunch != pending) return;
+            pendingKeyguardLaunch = null;
+        }
+        if (SystemClock.elapsedRealtime() - pending.createdAt > 120_000L) {
+            log(Log.INFO, TAG, "Discarded expired screen-off keyguard handoff");
+            return;
+        }
+        try {
+            if (pending.isService) {
+                pending.context.startForegroundService(pending.target);
+            } else {
+                pending.context.startActivity(pending.target);
+            }
+            log(Log.INFO, TAG, "Started screen-off target as keyguard exit began");
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to start screen-off target in keyguard transition", error);
+        }
+    }
+
+    private void cancelPendingKeyguardLaunch(String id) {
+        if (id == null) return;
+        synchronized (this) {
+            if (pendingKeyguardLaunch == null || !id.equals(pendingKeyguardLaunch.id)) return;
+            pendingKeyguardLaunch = null;
+        }
+        log(Log.INFO, TAG, "Canceled pending screen-off keyguard handoff");
     }
 
     private void clearPendingWakeLaunch(String reason) {
@@ -424,6 +544,23 @@ public final class TriKeyModule extends XposedModule {
             this.config = config;
             this.gesture = gesture;
             this.deviceSecure = deviceSecure;
+        }
+    }
+
+    private static final class PendingKeyguardLaunch {
+        final String id;
+        final Context context;
+        final Intent target;
+        final boolean isService;
+        final long createdAt;
+
+        PendingKeyguardLaunch(String id, Context context, Intent target, boolean isService,
+                              long createdAt) {
+            this.id = id;
+            this.context = context;
+            this.target = target;
+            this.isService = isService;
+            this.createdAt = createdAt;
         }
     }
 
