@@ -501,6 +501,10 @@ public final class TriKeyModule extends XposedModule {
             } else {
                 pending.context.startActivity(pending.target);
             }
+            Intent acknowledgment = new Intent(KeyguardLaunchActivity.ACTION_HANDOFF_STARTED)
+                    .setPackage(BuildConfig.APPLICATION_ID)
+                    .putExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID, pending.id);
+            pending.context.sendBroadcast(acknowledgment);
             log(Log.INFO, TAG, "Started screen-off target as keyguard exit began");
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Unable to start screen-off target in keyguard transition", error);
