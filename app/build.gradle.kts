@@ -17,13 +17,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.cvhhji.trikey"
+        applicationId = "com.trikey.tky"
         minSdk = 26
         targetSdk {
             version = release(37)
         }
-        versionCode = 20
-        versionName = "1.4.6"
+        versionCode = 21
+        versionName = "1.4.7"
     }
 
     signingConfigs {

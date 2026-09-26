@@ -59,6 +59,11 @@ jobs:
           if [ ! -f "$SOURCE" ]; then
             SOURCE="app/build/outputs/apk/release/app-release-unsigned.apk"
           fi
+          PACKAGE="$($AAPT dump badging "$SOURCE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -1)"
+          if [ "$PACKAGE" != "com.trikey.tky" ]; then
+            echo "Unexpected application ID: $PACKAGE" >&2
+            exit 1
+          fi
           VERSION="$($AAPT dump badging "$SOURCE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$VERSION"
           APK="app/build/outputs/apk/release/TriKey-v${VERSION}.apk"

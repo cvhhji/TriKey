@@ -138,7 +138,7 @@ Settings cards use a 20dp radius, the activation status card uses a 24dp radius,
 
 ### Foundational visual states
 
-Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Module activation is verified from the running system target and loaded version. The status card remains read-only: active shows a check and “已激活”; stale module code shows an exclamation and “需要重启”; absent or failed activation shows an exclamation and “未激活”. App-owned text follows the platform's current default typeface.
+Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Module activation is verified from the running system target and loaded version. The status card remains read-only: active shows a check and “已激活”; stale module code shows an exclamation and “需重启”; absent or failed activation shows an exclamation and “未激活”. App-owned text follows the platform's current default typeface.
 
 ### Buttons and actions
 

@@ -507,7 +507,7 @@ public final class MainActivity extends Activity {
             iconForeground = R.color.on_warning;
             labelColor = R.color.on_warning_container;
             iconResource = R.drawable.ic_status_attention;
-            label = "需要重启";
+            label = "需重启";
         } else if (state == ActivationState.INACTIVE) {
             cardColor = R.color.error_container;
             iconBackground = R.color.error;
