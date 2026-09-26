@@ -424,8 +424,8 @@ public final class MainActivity extends Activity {
                 if (system != null) {
                     android.content.pm.PackageInfo appInfo = getPackageManager()
                             .getPackageInfo(getPackageName(), 0);
-                    int currentVersion = appInfo.versionCode;
-                    int loadedVersion = system.getLoadedVersionCode();
+                    long currentVersion = appInfo.versionCode;
+                    long loadedVersion = system.getLoadedVersionCode();
                     boolean current = loadedVersion == currentVersion;
                     boolean upToDate = system.getState() == HookedTarget.State.UP_TO_DATE;
                     active = current && upToDate;
