@@ -12,6 +12,12 @@ colors:
   text-primary: "#17191D"
   text-secondary: "#5D626B"
   text-tertiary: "#68707C"
+  activation-active-background: "#EAF5ED"
+  activation-active-border: "#B9DDC0"
+  activation-active-text: "#1F6B37"
+  activation-inactive-background: "#FFF4E5"
+  activation-inactive-border: "#F2CE97"
+  activation-inactive-text: "#8A5200"
 typography:
   sans:
     fontFamily: "Android system default (Typeface.DEFAULT) with OEM CJK fallback"
@@ -62,7 +68,7 @@ Use Android's default system typeface for all app-owned text and allow the devic
 
 ## Layout
 
-The page is one natural-height `ScrollView`; it does not fix content to the viewport. The compact app identity header leads directly into editable settings sections, without overview or screen-off explanation cards. Horizontal page inset is 18dp, section inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
+The page is one natural-height `ScrollView`; it does not fix content to the viewport. The compact app identity header is followed by a full-width module activation verification card, then the editable settings sections. The verification card aligns to the same 18dp page inset as the form, reports whether the current version is running in `system_server`, and can be tapped to refresh. Section inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
 
 ## Elevation & Depth
 
@@ -70,13 +76,13 @@ Hierarchy comes from page/card surface contrast and a 1dp outline rather than sh
 
 ## Shapes
 
-Cards use a 16dp radius, fields use a 10dp radius, and the compact TriKey mark uses 14dp. Fields retain a fine outline in light and dark themes. Avoid pill-shaped containers for ordinary settings.
+Settings cards use a 16dp radius, the activation status card uses an 18dp radius, fields use a 10dp radius, and the compact TriKey mark uses 14dp. Fields retain a fine outline in light and dark themes. Avoid pill-shaped containers for ordinary settings.
 
 ## Components
 
 ### Foundational visual states
 
-Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Service connection status is text, not color alone. App-owned text follows the platform's current default typeface.
+Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Module activation is verified from the running system target and loaded version; status is expressed with text as well as color. App-owned text follows the platform's current default typeface.
 
 ### Buttons and actions
 
@@ -84,11 +90,11 @@ There is one primary action, “保存设置”. Native selectors keep platform 
 
 ### Navigation and data display
 
-The screen has no route navigation, lists, or tables. The top identity block presents the app name and the live LSPosed service state.
+The screen has no route navigation, lists, or tables. The top identity block presents the app name, followed by the live module activation and version check.
 
 ### Forms and overlays
 
-Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. The module status explains when saving is unavailable. No modal or custom popup is introduced.
+Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. The activation card explains missing or outdated system injection and can be tapped to re-check. No modal or custom popup is introduced.
 
 ### Iconography
 

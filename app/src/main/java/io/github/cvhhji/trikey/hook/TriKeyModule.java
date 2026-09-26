@@ -375,7 +375,10 @@ public final class TriKeyModule extends XposedModule {
                 target = resolveForegroundServiceIntent(queued.context, target);
             }
             target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            Intent challenge = new Intent(queued.context, KeyguardLaunchActivity.class)
+            ComponentName challengeComponent = new ComponentName(
+                    KeyguardLaunchActivity.class.getPackage().getName(),
+                    KeyguardLaunchActivity.class.getName());
+            Intent challenge = new Intent().setComponent(challengeComponent)
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_INTENT, target)
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_IS_SERVICE, "ocr".equals(type))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);

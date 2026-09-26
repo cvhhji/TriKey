@@ -8,4 +8,10 @@
     <color name="text_primary">#F0F1F3</color>
     <color name="text_secondary">#BEC2CA</color>
     <color name="text_tertiary">#9298A3</color>
+    <color name="status_active_background">#17251B</color>
+    <color name="status_active_border">#2E5A39</color>
+    <color name="status_active_text">#A7E1B3</color>
+    <color name="status_inactive_background">#2C2116</color>
+    <color name="status_inactive_border">#72542D</color>
+    <color name="status_inactive_text">#F5C979</color>
 </resources>

@@ -36,7 +36,8 @@
         <activity
             android:name=".KeyguardLaunchActivity"
             android:excludeFromRecents="true"
-            android:exported="false"
+            android:exported="true"
+            android:permission="android.permission.START_ANY_ACTIVITY"
             android:theme="@style/KeyguardLaunchTheme" />
         <activity-alias
             android:name=".Launcher"

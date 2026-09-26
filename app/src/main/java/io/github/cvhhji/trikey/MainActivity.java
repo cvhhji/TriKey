@@ -25,23 +25,30 @@ import android.widget.Toast;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+import io.github.libxposed.service.HookedTarget;
 import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
 public final class MainActivity extends Activity {
+    private final ExecutorService statusWorker = Executors.newSingleThreadExecutor();
     private final Map<String, String> actions = new LinkedHashMap<>();
     private final Map<String, Spinner> typeViews = new LinkedHashMap<>();
     private final Map<String, EditText> valueViews = new LinkedHashMap<>();
     private CheckBox enabled;
     private CheckBox consumeOriginal;
     private Switch launcherVisible;
-    private TextView moduleStatus;
+    private LinearLayout activationCard;
+    private TextView activationStatus;
     private EditText keyCode;
     private EditText doubleMs;
     private EditText longMs;
     private Button save;
     private SharedPreferences prefs;
+    private volatile XposedService xposedService;
+    private volatile boolean destroyed;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -85,15 +92,21 @@ public final class MainActivity extends Activity {
         heading.setOrientation(LinearLayout.VERTICAL);
         heading.addView(text("TriKey", 27, true, R.color.text_primary));
         heading.addView(text("实体按键 · 三种手势", 14, false, R.color.text_secondary));
-        moduleStatus = text("正在连接模块服务…", 12, false, R.color.text_tertiary);
-        moduleStatus.setPadding(dp(10), dp(5), dp(10), dp(5));
-        moduleStatus.setBackground(roundWithStroke(
-                R.color.field_background, R.color.outline, 14));
-        heading.addView(moduleStatus, margins(0, 4, 0, 0));
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1f);
         headingParams.setMargins(dp(14), 0, 0, 0);
         header.addView(heading, headingParams);
         root.addView(header);
+
+        activationCard = card("模块激活验证");
+        activationStatus = text("正在检查 system_server 注入状态…", 13, false,
+                R.color.text_secondary);
+        activationStatus.setLineSpacing(dp(4), 1f);
+        activationCard.addView(activationStatus);
+        activationCard.setClickable(true);
+        activationCard.setFocusable(true);
+        activationCard.setContentDescription("模块激活验证，点击重新检查");
+        activationCard.setOnClickListener(ignored -> refreshInjectionStatus());
+        root.addView(activationCard, margins(0, 16, 0, 0));
 
         LinearLayout general = card("常规");
         enabled = new CheckBox(this);
@@ -126,7 +139,7 @@ public final class MainActivity extends Activity {
         launcherVisible.setMinHeight(dp(48));
         general.addView(launcherVisible, margins(0, 8, 0, 0));
         general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
-        root.addView(general);
+        root.addView(general, margins(0, 14, 0, 0));
 
         LinearLayout timing = card("按键与时序");
         keyCode = numberField(timing, "按键码", Config.DEFAULT_KEY_CODE);
@@ -161,6 +174,19 @@ public final class MainActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
         bindXposedService();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshInjectionStatus();
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        statusWorker.shutdownNow();
+        super.onDestroy();
     }
 
     private void addGesture(LinearLayout root, String key, String label) {
@@ -350,30 +376,96 @@ public final class MainActivity extends Activity {
             @Override
             public void onServiceBind(XposedService service) {
                 runOnUiThread(() -> {
+                    if (destroyed) return;
+                    xposedService = service;
                     prefs = service.getRemotePreferences(Config.PREFS);
                     loadPreferences();
-                    moduleStatus.setText("模块已连接");
-                    moduleStatus.setTextColor(color(R.color.primary));
-                    moduleStatus.setBackground(roundWithStroke(
-                            R.color.field_background, R.color.primary, 14));
                     save.setEnabled(true);
                     save.setAlpha(1f);
+                    refreshInjectionStatus();
                 });
             }
 
             @Override
             public void onServiceDied(XposedService service) {
                 runOnUiThread(() -> {
+                    if (destroyed) return;
+                    xposedService = null;
                     prefs = null;
-                    moduleStatus.setText("模块未连接");
-                    moduleStatus.setTextColor(color(R.color.text_tertiary));
-                    moduleStatus.setBackground(roundWithStroke(
-                            R.color.field_background, R.color.outline, 14));
+                    setActivation(false, "● 未激活\n\n原因：未检测到 LSPosed 模块服务。\n建议：确认 TriKey 已在模块管理器中启用，然后重新检查。");
                     save.setEnabled(false);
                     save.setAlpha(0.48f);
                 });
             }
         });
+    }
+
+    private void refreshInjectionStatus() {
+        if (destroyed) return;
+        XposedService service = xposedService;
+        if (service == null) {
+            setActivation(false, "● 未激活\n\n原因：尚未连接到 LSPosed 模块服务。\n建议：确认 TriKey 已启用，并返回本页重新检查。");
+            return;
+        }
+        activationStatus.setText("正在核验 system_server 注入状态…");
+        activationStatus.setTextColor(color(R.color.text_secondary));
+        statusWorker.execute(() -> {
+            boolean active = false;
+            String message = "● 未激活\n\n原因：尚未发现 system_server 注入记录。\n建议：确认模块作用域包含 system，然后重启设备。";
+            try {
+                HookedTarget system = null;
+                for (HookedTarget target : service.getRunningTargets()) {
+                    String process = target.getProcessName();
+                    if ("system_server".equals(process) || "system".equals(process)) {
+                        system = target;
+                        break;
+                    }
+                }
+                if (system != null) {
+                    android.content.pm.PackageInfo appInfo = getPackageManager()
+                            .getPackageInfo(getPackageName(), 0);
+                    int currentVersion = appInfo.versionCode;
+                    int loadedVersion = system.getLoadedVersionCode();
+                    boolean current = loadedVersion == currentVersion;
+                    boolean upToDate = system.getState() == HookedTarget.State.UP_TO_DATE;
+                    active = current && upToDate;
+                    if (active) {
+                        message = "● 已激活\nsystem_server 正在运行当前 TriKey 版本（v"
+                                + appInfo.versionName + "）。\n点击卡片可重新验证。";
+                    } else {
+                        message = "● 未激活\n\n原因：system_server 已加载版本 "
+                                + loadedVersion + "，当前应用版本为 " + currentVersion
+                                + "。\n建议：重启设备，让当前模块版本重新注入。";
+                    }
+                }
+            } catch (Throwable error) {
+                String detail = error.getMessage();
+                message = "● 未激活\n\n原因：读取注入状态失败"
+                        + (detail == null || detail.isEmpty() ? "。" : "：" + detail)
+                        + "\n建议：检查 LSPosed 服务和模块日志。";
+            }
+            boolean verified = active;
+            String result = message;
+            runOnUiThread(() -> {
+                if (!destroyed && !isFinishing()) setActivation(verified, result);
+            });
+        });
+    }
+
+    private void setActivation(boolean active, String message) {
+        GradientDrawable background = new GradientDrawable();
+        background.setCornerRadius(dp(18));
+        if (active) {
+            background.setColor(color(R.color.status_active_background));
+            background.setStroke(dp(1), color(R.color.status_active_border));
+            activationStatus.setTextColor(color(R.color.status_active_text));
+        } else {
+            background.setColor(color(R.color.status_inactive_background));
+            background.setStroke(dp(1), color(R.color.status_inactive_border));
+            activationStatus.setTextColor(color(R.color.status_inactive_text));
+        }
+        activationStatus.setText(message);
+        activationCard.setBackground(background);
     }
 
     private void loadPreferences() {
