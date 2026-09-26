@@ -467,6 +467,7 @@ public final class TriKeyModule extends XposedModule {
                 "android.permission.CONTROL_KEYGUARD") == PackageManager.PERMISSION_GRANTED;
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void ensureKeyguardHandoffCancelReceiver(Context context) {
         if (keyguardHandoffReceiverRegistered) return;
         try {
