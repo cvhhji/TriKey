@@ -10,6 +10,9 @@ val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASS
 android {
     namespace = "io.github.cvhhji.trikey"
     enableKotlin = false
+    buildFeatures {
+        buildConfig = true
+    }
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
@@ -22,8 +25,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 21
-        versionName = "1.4.7"
+        versionCode = 22
+        versionName = "1.4.8"
     }
 
     signingConfigs {

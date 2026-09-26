@@ -19,6 +19,7 @@ import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 
+import io.github.cvhhji.trikey.BuildConfig;
 import io.github.cvhhji.trikey.KeyguardLaunchActivity;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -381,7 +382,7 @@ public final class TriKeyModule extends XposedModule {
             }
             target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             ComponentName challengeComponent = new ComponentName(
-                    KeyguardLaunchActivity.class.getPackage().getName(),
+                    BuildConfig.APPLICATION_ID,
                     KeyguardLaunchActivity.class.getName());
             Intent challenge = new Intent().setComponent(challengeComponent)
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_INTENT, target)

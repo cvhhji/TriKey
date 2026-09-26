@@ -568,7 +568,8 @@ public final class MainActivity extends Activity {
     }
 
     private ComponentName launcherComponent() {
-        return new ComponentName(this, getPackageName() + ".Launcher");
+        return new ComponentName(BuildConfig.APPLICATION_ID,
+                MainActivity.class.getPackage().getName() + ".Launcher");
     }
 
     private String defaultType(String key) {
