@@ -14,7 +14,7 @@ colors:
   text-tertiary: "#68707C"
 typography:
   sans:
-    fontFamily: "Noto Sans CJK SC system font with sans-serif fallback"
+    fontFamily: "Android system default (Typeface.DEFAULT) with OEM CJK fallback"
   mono:
     fontFamily: "monospace"
 rounded:
@@ -38,7 +38,7 @@ components:
 
 ### Creative North Star
 
-TriKey is a small hardware control panel: a physical key has three deliberate press patterns, each mapped to one outcome. The interface should read like clear device settings, not a launcher or a marketing page. A quiet cobalt accent carries the one primary save action; gesture cards and plain labels make the configuration easy to scan.
+TriKey is a small hardware control panel: a physical key has three deliberate press patterns, each mapped to one outcome. The interface should read like clear device settings, not a launcher or a marketing page. A quiet cobalt accent carries the one primary save action; compact form sections make the configuration easy to scan.
 
 ### Product context and register
 
@@ -47,7 +47,7 @@ TriKey is a small hardware control panel: a physical key has three deliberate pr
 - **Locale(s) and language policy:** The current interface is Simplified Chinese. Android's system sans family provides CJK fallback; additional locales are not implemented.
 - **Usage scene:** A phone settings screen used occasionally, often while testing a physical key. The screen is a vertical, scrollable form with no persistent navigation.
 - **Register:** Direct system utility. Labels name settings and outcomes without promotional copy.
-- **Memorable signature:** Three gesture cards pair press pattern with an explicit action selector.
+- **Memorable signature:** Three compact gesture sections pair each press pattern with an explicit action selector.
 - **Restraint:** Preserve native Android control behavior and platform-owned selector menus; avoid decorative gradients, shadows, and motion.
 - **Anti-references:** Launcher grids, gamer dashboards, and generic marketing hero layouts obscure the settings task and are not used.
 - **Token ownership/runtime mapping:** Model B. Android color resources in `app/src/main/res/values/colors.xml` and `values-night/colors.xml` are canonical; this document mirrors them. `MainActivity.java` consumes those resources and owns layout dimensions. Review this mapping when either runtime palette changes.
@@ -58,11 +58,11 @@ The light theme uses cobalt `primary` (#3568D4) for the app mark, save action, a
 
 ## Typography
 
-Use the installed Noto Sans CJK system face for app-owned labels so a device-level handwriting font does not make settings hard to read; fall back to `sans-serif` if that face is unavailable. The app name is the strongest page heading, card titles are medium-sized and bold, and body/helper text is kept to concise Chinese sentences. Technical values such as key codes and milliseconds remain plain text fields; no custom numeric font is required.
+Use Android's default system typeface for all app-owned text and allow the device's normal CJK fallback and user font settings to apply. Do not load a font file or override the system family. The app name is the strongest page heading, section titles are medium-sized and bold, and body/helper text is kept to concise Chinese sentences. Technical values such as key codes and milliseconds remain plain text fields; no custom numeric font is required.
 
 ## Layout
 
-The page is one natural-height `ScrollView`; it does not fix content to the viewport. A compact cobalt overview panel explains the key mapping and screen-off behavior, followed by editable settings cards. Horizontal page inset is 18dp, card content inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
+The page is one natural-height `ScrollView`; it does not fix content to the viewport. The compact app identity header leads directly into editable settings sections, without overview or screen-off explanation cards. Horizontal page inset is 18dp, section inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
 
 ## Elevation & Depth
 
@@ -76,11 +76,11 @@ Cards use a 16dp radius, fields use a 10dp radius, and the compact TriKey mark u
 
 ### Foundational visual states
 
-Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Service connection status is text, not color alone.
+Android owns pressed, focused, checked, and disabled semantics for CheckBox, Switch, Spinner, EditText, and Button. The custom save background changes surface shape and color but keeps the control as a native Button. Service connection status is text, not color alone. App-owned text follows the platform's current default typeface.
 
 ### Buttons and actions
 
-There is one primary action, “保存设置”. Native selectors keep platform popup behavior while using the app's explicit CJK face and readable field contrast. Gesture names are visible above their action selectors, and custom values gain a visible label when the corresponding custom action is selected.
+There is one primary action, “保存设置”. Native selectors keep platform popup behavior and system typography with readable field contrast. Gesture names are visible above their action selectors, and custom values gain a visible label when the corresponding custom action is selected.
 
 ### Navigation and data display
 
@@ -88,7 +88,7 @@ The screen has no route navigation, lists, or tables. The top identity block pre
 
 ### Forms and overlays
 
-Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior and are described in the lock-screen card, not exposed as a separate toggle. The module status explains when saving is unavailable. No modal or custom popup is introduced.
+Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. The module status explains when saving is unavailable. No modal or custom popup is introduced.
 
 ### Iconography
 
@@ -105,6 +105,6 @@ Use concise Simplified Chinese copy and explicit action names. Key codes and dur
 ## Do's and Don'ts
 
 - **Do:** Keep the selector menus native and keyboard/touch operable.
-- **Do:** Explain that secure lock-screen authentication is system-owned and happens before the target opens.
+- **Do:** Keep secure lock-screen authentication system-owned; document behavior outside the settings form.
 - **Don't:** Imply that TriKey bypasses or supplies lock-screen credentials.
 - **Don't:** Hide control labels in placeholders or rely on color alone for module status.

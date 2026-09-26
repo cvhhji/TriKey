@@ -42,7 +42,6 @@ public final class MainActivity extends Activity {
     private EditText longMs;
     private Button save;
     private SharedPreferences prefs;
-    private Typeface baseTypeface;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -96,18 +95,6 @@ public final class MainActivity extends Activity {
         header.addView(heading, headingParams);
         root.addView(header);
 
-        LinearLayout overview = new LinearLayout(this);
-        overview.setOrientation(LinearLayout.VERTICAL);
-        overview.setPadding(dp(18), dp(18), dp(18), dp(18));
-        overview.setBackground(round(R.color.primary, 20));
-        overview.addView(text("一个按键，三种快捷动作", 20, true, R.color.on_primary));
-        TextView overviewHint = text(
-                "熄屏时自动唤醒；有安全锁屏时先显示系统验证，验证成功后再打开目标。",
-                14, false, R.color.on_primary);
-        overviewHint.setLineSpacing(0, 1.18f);
-        overview.addView(overviewHint, margins(0, 8, 0, 0));
-        root.addView(overview, margins(0, 18, 0, 18));
-
         LinearLayout general = card("常规");
         enabled = new CheckBox(this);
         enabled.setText("启用按键映射");
@@ -140,15 +127,6 @@ public final class MainActivity extends Activity {
         general.addView(launcherVisible, margins(0, 8, 0, 0));
         general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
         root.addView(general);
-
-        LinearLayout screenOff = card("锁屏时的跳转");
-        screenOff.addView(text("熄屏自动唤醒", 16, true, R.color.text_primary));
-        TextView screenOffHint = text(
-                "默认开启。设置了 PIN、图案或密码时，由系统先显示验证界面；验证成功后跳转，取消或验证失败则保持锁屏。未设置安全锁屏时直接打开目标。",
-                13, false, R.color.text_secondary);
-        screenOffHint.setLineSpacing(0, 1.2f);
-        screenOff.addView(screenOffHint, margins(0, 6, 0, 0));
-        root.addView(screenOff, margins(0, 14, 0, 0));
 
         LinearLayout timing = card("按键与时序");
         keyCode = numberField(timing, "按键码", Config.DEFAULT_KEY_CODE);
@@ -449,14 +427,7 @@ public final class MainActivity extends Activity {
     }
 
     private Typeface uiTypeface(boolean bold) {
-        if (baseTypeface == null) {
-            try {
-                baseTypeface = Typeface.createFromFile("/system/fonts/NotoSansCJK-Regular.ttc");
-            } catch (RuntimeException unavailable) {
-                baseTypeface = Typeface.create("sans-serif", Typeface.NORMAL);
-            }
-        }
-        return Typeface.create(baseTypeface, bold ? Typeface.BOLD : Typeface.NORMAL);
+        return Typeface.create(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
     }
 
     private GradientDrawable round(int colorId, int radius) {
