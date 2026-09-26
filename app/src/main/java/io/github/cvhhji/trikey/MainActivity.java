@@ -97,15 +97,11 @@ public final class MainActivity extends Activity {
         header.addView(heading, headingParams);
         root.addView(header);
 
-        activationCard = card("模块激活验证");
-        activationStatus = text("正在检查 system_server 注入状态…", 13, false,
+        activationCard = card();
+        activationStatus = text("正在检查…", 13, false,
                 R.color.text_secondary);
         activationStatus.setLineSpacing(dp(4), 1f);
         activationCard.addView(activationStatus);
-        activationCard.setClickable(true);
-        activationCard.setFocusable(true);
-        activationCard.setContentDescription("模块激活验证，点击重新检查");
-        activationCard.setOnClickListener(ignored -> refreshInjectionStatus());
         root.addView(activationCard, margins(0, 16, 0, 0));
 
         LinearLayout general = card("常规");
@@ -262,11 +258,16 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout card(String title) {
+        LinearLayout layout = card();
+        layout.addView(text(title, 17, true, R.color.text_primary), margins(0, 0, 0, 10));
+        return layout;
+    }
+
+    private LinearLayout card() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(16), dp(14), dp(16), dp(16));
         layout.setBackground(roundWithStroke(R.color.card_background, R.color.outline, 16));
-        layout.addView(text(title, 17, true, R.color.text_primary), margins(0, 0, 0, 10));
         return layout;
     }
 
@@ -392,7 +393,7 @@ public final class MainActivity extends Activity {
                     if (destroyed) return;
                     xposedService = null;
                     prefs = null;
-                    setActivation(false, "● 未激活\n\n原因：未检测到 LSPosed 模块服务。\n建议：确认 TriKey 已在模块管理器中启用，然后重新检查。");
+                    setActivation(false);
                     save.setEnabled(false);
                     save.setAlpha(0.48f);
                 });
@@ -404,14 +405,13 @@ public final class MainActivity extends Activity {
         if (destroyed) return;
         XposedService service = xposedService;
         if (service == null) {
-            setActivation(false, "● 未激活\n\n原因：尚未连接到 LSPosed 模块服务。\n建议：确认 TriKey 已启用，并返回本页重新检查。");
+            setActivation(false);
             return;
         }
-        activationStatus.setText("正在核验 system_server 注入状态…");
+        activationStatus.setText("正在检查…");
         activationStatus.setTextColor(color(R.color.text_secondary));
         statusWorker.execute(() -> {
             boolean active = false;
-            String message = "● 未激活\n\n原因：尚未发现 system_server 注入记录。\n建议：确认模块作用域包含 system，然后重启设备。";
             try {
                 HookedTarget system = null;
                 for (HookedTarget target : service.getRunningTargets()) {
@@ -429,42 +429,31 @@ public final class MainActivity extends Activity {
                     boolean current = loadedVersion == currentVersion;
                     boolean upToDate = system.getState() == HookedTarget.State.UP_TO_DATE;
                     active = current && upToDate;
-                    if (active) {
-                        message = "● 已激活\nsystem_server 正在运行当前 TriKey 版本（v"
-                                + appInfo.versionName + "）。\n点击卡片可重新验证。";
-                    } else {
-                        message = "● 未激活\n\n原因：system_server 已加载版本 "
-                                + loadedVersion + "，当前应用版本为 " + currentVersion
-                                + "。\n建议：重启设备，让当前模块版本重新注入。";
-                    }
                 }
-            } catch (Throwable error) {
-                String detail = error.getMessage();
-                message = "● 未激活\n\n原因：读取注入状态失败"
-                        + (detail == null || detail.isEmpty() ? "。" : "：" + detail)
-                        + "\n建议：检查 LSPosed 服务和模块日志。";
+            } catch (Throwable ignored) {
+                active = false;
             }
             boolean verified = active;
-            String result = message;
             runOnUiThread(() -> {
-                if (!destroyed && !isFinishing()) setActivation(verified, result);
+                if (!destroyed && !isFinishing()) setActivation(verified);
             });
         });
     }
 
-    private void setActivation(boolean active, String message) {
+    private void setActivation(boolean active) {
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(dp(18));
         if (active) {
             background.setColor(color(R.color.status_active_background));
             background.setStroke(dp(1), color(R.color.status_active_border));
             activationStatus.setTextColor(color(R.color.status_active_text));
+            activationStatus.setText("已激活");
         } else {
             background.setColor(color(R.color.status_inactive_background));
             background.setStroke(dp(1), color(R.color.status_inactive_border));
             activationStatus.setTextColor(color(R.color.status_inactive_text));
+            activationStatus.setText("未激活");
         }
-        activationStatus.setText(message);
         activationCard.setBackground(background);
     }
 

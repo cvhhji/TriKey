@@ -68,7 +68,7 @@ Use Android's default system typeface for all app-owned text and allow the devic
 
 ## Layout
 
-The page is one natural-height `ScrollView`; it does not fix content to the viewport. The compact app identity header is followed by a full-width module activation verification card, then the editable settings sections. The verification card aligns to the same 18dp page inset as the form, reports whether the current version is running in `system_server`, and can be tapped to refresh. Section inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
+The page is one natural-height `ScrollView`; it does not fix content to the viewport. The compact app identity header is followed by a full-width module activation verification card, then the editable settings sections. The verification card aligns to the same 18dp page inset as the form and displays only the concise activation state; it checks automatically and is not interactive. Section inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
 
 ## Elevation & Depth
 
@@ -90,11 +90,11 @@ There is one primary action, “保存设置”. Native selectors keep platform 
 
 ### Navigation and data display
 
-The screen has no route navigation, lists, or tables. The top identity block presents the app name, followed by the live module activation and version check.
+The screen has no route navigation, lists, or tables. The top identity block presents the app name, followed by the live module activation state.
 
 ### Forms and overlays
 
-Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. The activation card explains missing or outdated system injection and can be tapped to re-check. No modal or custom popup is introduced.
+Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. The activation card shows only “已激活” or “未激活”, updates automatically, and has no click action. No modal or custom popup is introduced.
 
 ### Iconography
 

@@ -21,6 +21,7 @@ public final class KeyguardLaunchActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Log.i(TAG, "Keyguard launch activity created");
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
@@ -33,9 +34,16 @@ public final class KeyguardLaunchActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (dismissalRequested) return;
+        Log.i(TAG, "Keyguard launch activity resumed");
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || dismissalRequested) return;
         dismissalRequested = true;
-        getWindow().getDecorView().post(this::requestKeyguardDismissal);
+        Log.i(TAG, "Keyguard launch activity window focused; waiting to request dismissal");
+        getWindow().getDecorView().postDelayed(this::requestKeyguardDismissal, 120L);
     }
 
     private void requestKeyguardDismissal() {
@@ -49,6 +57,7 @@ public final class KeyguardLaunchActivity extends Activity {
             finishRequest(true, "Device was already authenticated");
             return;
         }
+        Log.i(TAG, "Requesting keyguard dismissal from visible activity");
         keyguard.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
             @Override
             public void onDismissSucceeded() {
@@ -76,6 +85,7 @@ public final class KeyguardLaunchActivity extends Activity {
     private void finishRequest(boolean authenticated, String reason) {
         if (completed) return;
         completed = true;
+        Log.i(TAG, "Keyguard dismissal result: authenticated=" + authenticated + ", reason=" + reason);
         if (authenticated) {
             try {
                 Intent target = targetIntent();
