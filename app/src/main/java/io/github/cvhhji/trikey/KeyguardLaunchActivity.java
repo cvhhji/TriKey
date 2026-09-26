@@ -42,8 +42,8 @@ public final class KeyguardLaunchActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus || dismissalRequested) return;
         dismissalRequested = true;
-        Log.i(TAG, "Keyguard launch activity window focused; waiting to request dismissal");
-        getWindow().getDecorView().postDelayed(this::requestKeyguardDismissal, 120L);
+        Log.i(TAG, "Keyguard launch activity window focused; requesting dismissal");
+        getWindow().getDecorView().post(this::requestKeyguardDismissal);
     }
 
     private void requestKeyguardDismissal() {

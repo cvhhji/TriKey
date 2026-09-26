@@ -198,8 +198,10 @@ public final class TriKeyModule extends XposedModule {
         } catch (Throwable error) {
             log(Log.WARN, TAG, "Unable to wake display", error);
         }
+        boolean deviceSecure = isDeviceSecure(context);
+        log(Log.INFO, TAG, "Screen-off action requires device authentication: " + deviceSecure);
         queueAfterWake(context, config, gesture,
-                WakeLaunchPolicy.shouldWaitForAuthentication(isKeyguardSecure(context)));
+                WakeLaunchPolicy.shouldWaitForAuthentication(deviceSecure));
     }
 
     private void performAction(Context context, Bundle config, String gesture,
@@ -295,12 +297,12 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private boolean isKeyguardSecure(Context context) {
+    private boolean isDeviceSecure(Context context) {
         try {
             KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
-            return keyguard == null || keyguard.isKeyguardSecure();
+            return keyguard == null || keyguard.isDeviceSecure();
         } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Unable to verify lock-screen security; treating device as secure", error);
+            log(Log.ERROR, TAG, "Unable to verify device credentials; treating device as secure", error);
             return true;
         }
     }
@@ -319,7 +321,7 @@ public final class TriKeyModule extends XposedModule {
 
     private void startActivity(Context context, Intent intent, boolean dismissIfInsecure)
             throws ReflectiveOperationException {
-        if (!dismissIfInsecure || !WakeLaunchPolicy.shouldDismissKeyguard(isKeyguardSecure(context))) {
+        if (!dismissIfInsecure || !WakeLaunchPolicy.shouldDismissKeyguard(isDeviceSecure(context))) {
             context.startActivity(intent);
             return;
         }
@@ -335,9 +337,11 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private void queueAfterWake(Context context, Bundle config, String gesture, boolean secure) {
+    private void queueAfterWake(Context context, Bundle config, String gesture,
+                                boolean deviceSecure) {
         clearPendingWakeLaunch("replaced by a newer key action");
-        PendingWakeLaunch queued = new PendingWakeLaunch(context, new Bundle(config), gesture, secure);
+        PendingWakeLaunch queued = new PendingWakeLaunch(
+                context, new Bundle(config), gesture, deviceSecure);
         pendingWakeLaunch = queued;
         queued.screenReadyTask = () -> {
             if (pendingWakeLaunch != queued) return;
@@ -350,7 +354,7 @@ public final class TriKeyModule extends XposedModule {
                 return;
             }
             queued.screenReadyTask = () -> dispatchAfterWake(queued);
-            handler.postDelayed(queued.screenReadyTask, 350L);
+            handler.post(queued.screenReadyTask);
         };
         handler.post(queued.screenReadyTask);
     }
@@ -362,7 +366,8 @@ public final class TriKeyModule extends XposedModule {
             log(Log.INFO, TAG, "Screen-off action canceled before keyguard launch");
             return;
         }
-        if (!queued.secure) {
+        if (!queued.deviceSecure) {
+            log(Log.INFO, TAG, "Dispatching screen-off action without device credentials");
             performAction(queued.context, queued.config, queued.gesture, true);
             return;
         }
@@ -409,15 +414,15 @@ public final class TriKeyModule extends XposedModule {
         final Context context;
         final Bundle config;
         final String gesture;
-        final boolean secure;
+        final boolean deviceSecure;
         Runnable screenReadyTask;
         int waitChecks;
 
-        PendingWakeLaunch(Context context, Bundle config, String gesture, boolean secure) {
+        PendingWakeLaunch(Context context, Bundle config, String gesture, boolean deviceSecure) {
             this.context = context;
             this.config = config;
             this.gesture = gesture;
-            this.secure = secure;
+            this.deviceSecure = deviceSecure;
         }
     }
 
