@@ -33,6 +33,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".KeyguardLaunchActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/KeyguardLaunchTheme" />
         <activity-alias
             android:name=".Launcher"
             android:enabled="true"

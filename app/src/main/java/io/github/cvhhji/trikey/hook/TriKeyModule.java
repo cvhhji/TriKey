@@ -3,15 +3,12 @@ package io.github.cvhhji.trikey.hook;
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
-import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,6 +19,7 @@ import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 
+import io.github.cvhhji.trikey.KeyguardLaunchActivity;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -43,8 +41,7 @@ public final class TriKeyModule extends XposedModule {
     private KeyGestureDetector<Bundle> gestureDetector;
     private Context systemContext;
     private SharedPreferences preferences;
-    private BroadcastReceiver stateReceiver;
-    private PendingLaunch pendingLaunch;
+    private PendingWakeLaunch pendingWakeLaunch;
     private boolean pendingScreenOffGesture;
     private boolean currentPressWasSecond;
     private boolean currentPressScreenOff;
@@ -192,31 +189,17 @@ public final class TriKeyModule extends XposedModule {
         log(Log.INFO, TAG, "Gesture fired: gesture=" + gesture + ", type=" + type);
         if (context == null) return;
         boolean screenOff = config.getBoolean("screenOffAtGesture", false) || isScreenOff(context);
-        if (!WakeLaunchPolicy.shouldWake(
-                config.getBoolean("wakeOnScreenOff", false), screenOff, type)) {
+        if (!WakeLaunchPolicy.shouldWake(screenOff, type)) {
             performAction(context, config, gesture, false);
             return;
-        }
-        try {
-            registerStateReceiver(context);
-        } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Unable to monitor device authentication", error);
         }
         try {
             wakeDevice(context);
         } catch (Throwable error) {
             log(Log.WARN, TAG, "Unable to wake display", error);
         }
-        if (WakeLaunchPolicy.shouldWaitForAuthentication(isKeyguardSecure(context))) {
-            if (stateReceiver == null) {
-                log(Log.ERROR, TAG, "Secure screen-off action canceled because unlock monitoring is unavailable");
-                return;
-            }
-            queueUntilUnlocked(context, config, gesture);
-            log(Log.INFO, TAG, "Screen-off action waiting for successful device authentication");
-            return;
-        }
-        performAction(context, config, gesture, true);
+        queueAfterWake(context, config, gesture,
+                WakeLaunchPolicy.shouldWaitForAuthentication(isKeyguardSecure(context)));
     }
 
     private void performAction(Context context, Bundle config, String gesture,
@@ -224,60 +207,7 @@ public final class TriKeyModule extends XposedModule {
         String type = config.getString(gesture + "Type", "none");
         String value = config.getString(gesture + "Value", "");
         try {
-            Intent intent;
             switch (type) {
-                case "wechat":
-                    intent = component("com.tencent.mm", "com.tencent.mm.ui.LauncherUI");
-                    break;
-                case "global_search":
-                    intent = component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.SearchHomeActivity");
-                    break;
-                case "settings":
-                    intent = new Intent(android.provider.Settings.ACTION_SETTINGS);
-                    break;
-                case "app_search":
-                    intent = component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
-                    break;
-                case "translate":
-                    intent = component("com.coloros.translate", "com.coloros.translate.ui.MainActivity");
-                    break;
-                case "game_center":
-                    intent = component("com.oplus.games", "business.module.desktop.JumpSpaceActivity");
-                    break;
-                case "camera":
-                    intent = component("com.oplus.camera", "com.oplus.camera.Camera");
-                    break;
-                case "video_capture":
-                    intent = new Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE);
-                    break;
-                case "app":
-                    intent = context.getPackageManager().getLaunchIntentForPackage(value);
-                    if (intent == null) throw new IllegalArgumentException("Package has no launcher activity: " + value);
-                    break;
-                case "intent":
-                    intent = Intent.parseUri(value, Intent.URI_INTENT_SCHEME);
-                    break;
-                case "wechat_pay":
-                    intent = new Intent("com.tencent.mm.ui.ShortCutDispatchAction")
-                            .setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")
-                            .putExtra("LauncherUI.Shortcut.LaunchType", "launch_type_offline_wallet");
-                    break;
-                case "wechat_scan":
-                    intent = new Intent("com.tencent.mm.ui.ShortCutDispatchAction")
-                            .setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")
-                            .putExtra("LauncherUI.Shortcut.LaunchType", "launch_type_scan_qrcode");
-                    break;
-                case "alipay_pay":
-                    intent = alipay("20000056", "alipays://platformapi/startapp?appId=20000056");
-                    break;
-                case "alipay_scan":
-                    intent = alipay("10000007", "alipays://platformapi/startapp?appId=10000007&sourceId=scan3dtouch");
-                    break;
-                case "recorder":
-                    intent = new Intent("com.oplus.soundrecorder.LAUNCH_FROM_BRACKET_SPACE")
-                            .setClassName("com.coloros.soundrecorder", "oplus.multimedia.soundrecorder.slidebar.TransparentActivity")
-                            .putExtra("extra_enter_type", 3);
-                    break;
                 case "statusbar_expand":
                     statusBar(context, "expandNotificationsPanel");
                     return;
@@ -294,18 +224,64 @@ public final class TriKeyModule extends XposedModule {
                     injectKey(KeyEvent.KEYCODE_POWER);
                     return;
                 case "ocr":
-                    intent = new Intent("oplus.intent.action.DIRECT_SIDEBAR_SERVICE")
-                            .putExtra("extra_entrance_function", "full_screen_ocr")
-                            .putExtra("triggered_app", "com.coloros.smartsidebar");
-                    startResolvedForegroundService(context, intent);
-                    return;
-                default:
+                    startResolvedForegroundService(context, createTargetIntent(context, type, value));
                     return;
             }
+            Intent intent = createTargetIntent(context, type, value);
+            if (intent == null) return;
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             startActivity(context, intent, dismissKeyguardIfInsecure);
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Action failed for " + gesture + ": " + type, error);
+        }
+    }
+
+    private Intent createTargetIntent(Context context, String type, String value) throws Exception {
+        switch (type) {
+            case "wechat":
+                return component("com.tencent.mm", "com.tencent.mm.ui.LauncherUI");
+            case "global_search":
+                return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.SearchHomeActivity");
+            case "settings":
+                return new Intent(android.provider.Settings.ACTION_SETTINGS);
+            case "app_search":
+                return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
+            case "translate":
+                return component("com.coloros.translate", "com.coloros.translate.ui.MainActivity");
+            case "game_center":
+                return component("com.oplus.games", "business.module.desktop.JumpSpaceActivity");
+            case "camera":
+                return component("com.oplus.camera", "com.oplus.camera.Camera");
+            case "video_capture":
+                return new Intent(android.provider.MediaStore.ACTION_VIDEO_CAPTURE);
+            case "app":
+                Intent app = context.getPackageManager().getLaunchIntentForPackage(value);
+                if (app == null) throw new IllegalArgumentException("Package has no launcher activity: " + value);
+                return app;
+            case "intent":
+                return Intent.parseUri(value, Intent.URI_INTENT_SCHEME);
+            case "wechat_pay":
+                return new Intent("com.tencent.mm.ui.ShortCutDispatchAction")
+                        .setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")
+                        .putExtra("LauncherUI.Shortcut.LaunchType", "launch_type_offline_wallet");
+            case "wechat_scan":
+                return new Intent("com.tencent.mm.ui.ShortCutDispatchAction")
+                        .setClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")
+                        .putExtra("LauncherUI.Shortcut.LaunchType", "launch_type_scan_qrcode");
+            case "alipay_pay":
+                return alipay("20000056", "alipays://platformapi/startapp?appId=20000056");
+            case "alipay_scan":
+                return alipay("10000007", "alipays://platformapi/startapp?appId=10000007&sourceId=scan3dtouch");
+            case "recorder":
+                return new Intent("com.oplus.soundrecorder.LAUNCH_FROM_BRACKET_SPACE")
+                        .setClassName("com.coloros.soundrecorder", "oplus.multimedia.soundrecorder.slidebar.TransparentActivity")
+                        .putExtra("extra_enter_type", 3);
+            case "ocr":
+                return new Intent("oplus.intent.action.DIRECT_SIDEBAR_SERVICE")
+                        .putExtra("extra_entrance_function", "full_screen_ocr")
+                        .putExtra("triggered_app", "com.coloros.smartsidebar");
+            default:
+                return null;
         }
     }
 
@@ -325,16 +301,6 @@ public final class TriKeyModule extends XposedModule {
             return keyguard == null || keyguard.isKeyguardSecure();
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Unable to verify lock-screen security; treating device as secure", error);
-            return true;
-        }
-    }
-
-    private boolean isDeviceLocked(Context context) {
-        try {
-            KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
-            return keyguard == null || keyguard.isDeviceLocked();
-        } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Unable to verify unlock state", error);
             return true;
         }
     }
@@ -369,66 +335,63 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private void registerStateReceiver(Context context) {
-        if (stateReceiver != null) return;
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context receiverContext, Intent intent) {
-                if (intent == null) return;
-                if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
-                    clearPendingLaunch("screen turned off before unlock");
-                } else if (Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
-                    launchPendingIfUnlocked();
+    private void queueAfterWake(Context context, Bundle config, String gesture, boolean secure) {
+        clearPendingWakeLaunch("replaced by a newer key action");
+        PendingWakeLaunch queued = new PendingWakeLaunch(context, new Bundle(config), gesture, secure);
+        pendingWakeLaunch = queued;
+        queued.screenReadyTask = () -> {
+            if (pendingWakeLaunch != queued) return;
+            if (isScreenOff(queued.context)) {
+                if (++queued.waitChecks < 60) {
+                    handler.postDelayed(queued.screenReadyTask, 50L);
+                } else {
+                    clearPendingWakeLaunch("display did not finish waking");
                 }
+                return;
             }
+            queued.screenReadyTask = () -> dispatchAfterWake(queued);
+            handler.postDelayed(queued.screenReadyTask, 350L);
         };
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_USER_PRESENT);
-        filter.addAction(Intent.ACTION_SCREEN_OFF);
-        if (Build.VERSION.SDK_INT >= 33) {
-            context.registerReceiver(receiver, filter, null, handler, Context.RECEIVER_EXPORTED);
-        } else {
-            context.registerReceiver(receiver, filter, null, handler);
-        }
-        stateReceiver = receiver;
+        handler.post(queued.screenReadyTask);
     }
 
-    private void queueUntilUnlocked(Context context, Bundle config, String gesture) {
-        clearPendingLaunch("replaced by a newer key action");
-        PendingLaunch queued = new PendingLaunch(context, new Bundle(config), gesture);
-        pendingLaunch = queued;
-        queued.expirationTask = () -> {
-            if (pendingLaunch == queued) clearPendingLaunch("unlock timed out");
-        };
-        handler.postDelayed(queued.expirationTask, 120_000L);
-    }
-
-    private void launchPendingIfUnlocked() {
-        PendingLaunch queued = pendingLaunch;
-        if (queued == null) return;
-        checkPendingLaunchUnlock(queued);
-    }
-
-    private void checkPendingLaunchUnlock(PendingLaunch queued) {
-        if (pendingLaunch != queued) return;
-        if (isDeviceLocked(queued.context)) {
-            if (++queued.unlockChecks <= 8) {
-                handler.postDelayed(() -> checkPendingLaunchUnlock(queued), 250L);
-            }
+    private void dispatchAfterWake(PendingWakeLaunch queued) {
+        if (pendingWakeLaunch != queued) return;
+        pendingWakeLaunch = null;
+        if (isScreenOff(queued.context)) {
+            log(Log.INFO, TAG, "Screen-off action canceled before keyguard launch");
             return;
         }
-        pendingLaunch = null;
-        handler.removeCallbacks(queued.expirationTask);
-        log(Log.INFO, TAG, "Device authentication completed; running queued action");
-        performAction(queued.context, queued.config, queued.gesture, false);
+        if (!queued.secure) {
+            performAction(queued.context, queued.config, queued.gesture, true);
+            return;
+        }
+        String type = queued.config.getString(queued.gesture + "Type", "none");
+        String value = queued.config.getString(queued.gesture + "Value", "");
+        try {
+            Intent target = createTargetIntent(queued.context, type, value);
+            if (target == null) return;
+            if ("ocr".equals(type)) {
+                target = resolveForegroundServiceIntent(queued.context, target);
+            }
+            target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            Intent challenge = new Intent(queued.context, KeyguardLaunchActivity.class)
+                    .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_INTENT, target)
+                    .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_IS_SERVICE, "ocr".equals(type))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            queued.context.startActivity(challenge);
+            log(Log.INFO, TAG, "Started system keyguard challenge for screen-off action: " + type);
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to start keyguard challenge for " + queued.gesture, error);
+        }
     }
 
-    private void clearPendingLaunch(String reason) {
-        if (pendingLaunch == null) return;
-        PendingLaunch queued = pendingLaunch;
-        pendingLaunch = null;
-        handler.removeCallbacks(queued.expirationTask);
-        log(Log.INFO, TAG, "Cleared queued screen-off action: " + reason);
+    private void clearPendingWakeLaunch(String reason) {
+        if (pendingWakeLaunch == null) return;
+        PendingWakeLaunch queued = pendingWakeLaunch;
+        pendingWakeLaunch = null;
+        handler.removeCallbacks(queued.screenReadyTask);
+        log(Log.INFO, TAG, "Cleared pending wake launch: " + reason);
     }
 
     private void clearScreenOffGestureState() {
@@ -439,17 +402,19 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private static final class PendingLaunch {
+    private static final class PendingWakeLaunch {
         final Context context;
         final Bundle config;
         final String gesture;
-        Runnable expirationTask;
-        int unlockChecks;
+        final boolean secure;
+        Runnable screenReadyTask;
+        int waitChecks;
 
-        PendingLaunch(Context context, Bundle config, String gesture) {
+        PendingWakeLaunch(Context context, Bundle config, String gesture, boolean secure) {
             this.context = context;
             this.config = config;
             this.gesture = gesture;
+            this.secure = secure;
         }
     }
 
@@ -465,6 +430,10 @@ public final class TriKeyModule extends XposedModule {
     }
 
     private void startResolvedForegroundService(Context context, Intent intent) {
+        context.startForegroundService(resolveForegroundServiceIntent(context, intent));
+    }
+
+    private Intent resolveForegroundServiceIntent(Context context, Intent intent) {
         int flags = PackageManager.MATCH_SYSTEM_ONLY
                 | PackageManager.MATCH_DIRECT_BOOT_AWARE
                 | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
@@ -476,7 +445,7 @@ public final class TriKeyModule extends XposedModule {
                 resolved.serviceInfo.packageName, resolved.serviceInfo.name);
         intent.setComponent(component);
         log(Log.INFO, TAG, "Resolved foreground service: " + component.flattenToShortString());
-        context.startForegroundService(intent);
+        return intent;
     }
 
     @SuppressLint("WrongConstant")
@@ -524,7 +493,6 @@ public final class TriKeyModule extends XposedModule {
         }
         config.putBoolean("enabled", source.getBoolean("enabled", true));
         config.putBoolean("consumeOriginal", source.getBoolean("consumeOriginal", false));
-        config.putBoolean("wakeOnScreenOff", source.getBoolean("wakeOnScreenOff", false));
         config.putInt("keyCode", Config.normalizeKeyCode(
                 source.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
         config.putInt("doubleMs", source.getInt("doubleMs", 320));

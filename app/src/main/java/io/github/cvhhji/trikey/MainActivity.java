@@ -36,13 +36,13 @@ public final class MainActivity extends Activity {
     private CheckBox enabled;
     private CheckBox consumeOriginal;
     private Switch launcherVisible;
-    private Switch wakeOnScreenOff;
     private TextView moduleStatus;
     private EditText keyCode;
     private EditText doubleMs;
     private EditText longMs;
     private Button save;
     private SharedPreferences prefs;
+    private Typeface baseTypeface;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -85,23 +85,35 @@ public final class MainActivity extends Activity {
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.VERTICAL);
         heading.addView(text("TriKey", 27, true, R.color.text_primary));
-        heading.addView(text("一个按键，三种动作", 14, false, R.color.text_secondary));
+        heading.addView(text("实体按键 · 三种手势", 14, false, R.color.text_secondary));
         moduleStatus = text("正在连接模块服务…", 12, false, R.color.text_tertiary);
+        moduleStatus.setPadding(dp(10), dp(5), dp(10), dp(5));
+        moduleStatus.setBackground(roundWithStroke(
+                R.color.field_background, R.color.outline, 14));
         heading.addView(moduleStatus, margins(0, 4, 0, 0));
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1f);
         headingParams.setMargins(dp(14), 0, 0, 0);
         header.addView(heading, headingParams);
         root.addView(header);
 
-        TextView intro = text("将硬件按键扩展为单击、双击和长按。设置保存后立即生效。", 14, false, R.color.text_secondary);
-        intro.setLineSpacing(0, 1.15f);
-        root.addView(intro, margins(0, 16, 0, 20));
+        LinearLayout overview = new LinearLayout(this);
+        overview.setOrientation(LinearLayout.VERTICAL);
+        overview.setPadding(dp(18), dp(18), dp(18), dp(18));
+        overview.setBackground(round(R.color.primary, 20));
+        overview.addView(text("一个按键，三种快捷动作", 20, true, R.color.on_primary));
+        TextView overviewHint = text(
+                "熄屏时自动唤醒；有安全锁屏时先显示系统验证，验证成功后再打开目标。",
+                14, false, R.color.on_primary);
+        overviewHint.setLineSpacing(0, 1.18f);
+        overview.addView(overviewHint, margins(0, 8, 0, 0));
+        root.addView(overview, margins(0, 18, 0, 18));
 
         LinearLayout general = card("常规");
         enabled = new CheckBox(this);
         enabled.setText("启用按键映射");
         enabled.setTextColor(color(R.color.text_primary));
         enabled.setTextSize(16);
+        enabled.setTypeface(uiTypeface(false));
         enabled.setMinHeight(dp(48));
         enabled.setChecked(true);
         general.addView(enabled);
@@ -110,6 +122,7 @@ public final class MainActivity extends Activity {
         consumeOriginal.setText("替代系统原动作");
         consumeOriginal.setTextColor(color(R.color.text_primary));
         consumeOriginal.setTextSize(16);
+        consumeOriginal.setTypeface(uiTypeface(false));
         consumeOriginal.setMinHeight(dp(48));
         consumeOriginal.setChecked(false);
         general.addView(consumeOriginal, margins(0, 4, 0, 0));
@@ -120,6 +133,7 @@ public final class MainActivity extends Activity {
         launcherVisible.setText("在桌面显示图标");
         launcherVisible.setTextColor(color(R.color.text_primary));
         launcherVisible.setTextSize(16);
+        launcherVisible.setTypeface(uiTypeface(false));
         launcherVisible.setChecked(isLauncherVisible());
         launcherVisible.setOnCheckedChangeListener((button, visible) -> setLauncherVisible(visible));
         launcherVisible.setMinHeight(dp(48));
@@ -127,18 +141,13 @@ public final class MainActivity extends Activity {
         general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
         root.addView(general);
 
-        LinearLayout screenOff = card("熄屏时执行");
-        wakeOnScreenOff = new Switch(this);
-        wakeOnScreenOff.setText("唤醒屏幕并继续跳转");
-        wakeOnScreenOff.setTextColor(color(R.color.text_primary));
-        wakeOnScreenOff.setTextSize(16);
-        wakeOnScreenOff.setMinHeight(dp(48));
-        screenOff.addView(wakeOnScreenOff);
+        LinearLayout screenOff = card("锁屏时的跳转");
+        screenOff.addView(text("熄屏自动唤醒", 16, true, R.color.text_primary));
         TextView screenOffHint = text(
-                "未设置 PIN、图案或密码时自动继续；有安全锁屏时，验证成功后再打开目标。截图、返回、锁屏和状态栏动作不变。",
+                "默认开启。设置了 PIN、图案或密码时，由系统先显示验证界面；验证成功后跳转，取消或验证失败则保持锁屏。未设置安全锁屏时直接打开目标。",
                 13, false, R.color.text_secondary);
         screenOffHint.setLineSpacing(0, 1.2f);
-        screenOff.addView(screenOffHint, margins(4, 2, 0, 0));
+        screenOff.addView(screenOffHint, margins(0, 6, 0, 0));
         root.addView(screenOff, margins(0, 14, 0, 0));
 
         LinearLayout timing = card("按键与时序");
@@ -154,6 +163,7 @@ public final class MainActivity extends Activity {
         save = new Button(this);
         save.setText("保存设置");
         save.setTextSize(16);
+        save.setTypeface(uiTypeface(true));
         save.setTextColor(color(R.color.on_primary));
         save.setAllCaps(false);
         save.setEnabled(false);
@@ -179,7 +189,18 @@ public final class MainActivity extends Activity {
         LinearLayout section = card(label);
         Spinner spinner = new Spinner(this);
         String[] labels = actions.keySet().toArray(new String[0]);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, labels);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                this, android.R.layout.simple_spinner_item, labels) {
+            @Override
+            public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                return styleSpinnerText(super.getView(position, convertView, parent), false);
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, android.view.ViewGroup parent) {
+                return styleSpinnerText(super.getDropDownView(position, convertView, parent), true);
+            }
+        };
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
         spinner.setContentDescription(label + "时执行的动作");
@@ -205,6 +226,7 @@ public final class MainActivity extends Activity {
         value.setHintTextColor(color(R.color.text_tertiary));
         value.setTextColor(color(R.color.text_primary));
         value.setTextSize(14);
+        value.setTypeface(uiTypeface(false));
         value.setSingleLine(false);
         value.setMinLines(1);
         value.setMaxLines(3);
@@ -244,6 +266,15 @@ public final class MainActivity extends Activity {
         return layout;
     }
 
+    private View styleSpinnerText(View view, boolean dropdown) {
+        TextView label = (TextView) view;
+        label.setTypeface(uiTypeface(false));
+        label.setTextColor(color(R.color.text_primary));
+        label.setTextSize(15);
+        if (dropdown) label.setPadding(dp(16), dp(12), dp(16), dp(12));
+        return label;
+    }
+
     private EditText numberField(LinearLayout root, String label, int value) {
         TextView fieldLabel = text(label, 13, false, R.color.text_secondary);
         root.addView(fieldLabel, margins(0, 8, 0, 5));
@@ -255,6 +286,7 @@ public final class MainActivity extends Activity {
         input.setText(String.valueOf(value));
         input.setTextColor(color(R.color.text_primary));
         input.setTextSize(15);
+        input.setTypeface(uiTypeface(false));
         input.setSingleLine(true);
         input.setPadding(dp(12), 0, dp(12), 0);
         input.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
@@ -282,7 +314,6 @@ public final class MainActivity extends Activity {
             SharedPreferences.Editor e = prefs.edit()
                     .putBoolean("enabled", enabled.isChecked())
                     .putBoolean("consumeOriginal", consumeOriginal.isChecked())
-                    .putBoolean("wakeOnScreenOff", wakeOnScreenOff.isChecked())
                     .putInt("keyCode", key)
                     .putInt("doubleMs", dbl)
                     .putInt("longMs", lng);
@@ -343,7 +374,10 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     prefs = service.getRemotePreferences(Config.PREFS);
                     loadPreferences();
-                    moduleStatus.setText("模块服务已连接 · 设置可保存");
+                    moduleStatus.setText("模块已连接");
+                    moduleStatus.setTextColor(color(R.color.primary));
+                    moduleStatus.setBackground(roundWithStroke(
+                            R.color.field_background, R.color.primary, 14));
                     save.setEnabled(true);
                     save.setAlpha(1f);
                 });
@@ -353,7 +387,10 @@ public final class MainActivity extends Activity {
             public void onServiceDied(XposedService service) {
                 runOnUiThread(() -> {
                     prefs = null;
-                    moduleStatus.setText("模块服务已断开 · 设置暂不可保存");
+                    moduleStatus.setText("模块未连接");
+                    moduleStatus.setTextColor(color(R.color.text_tertiary));
+                    moduleStatus.setBackground(roundWithStroke(
+                            R.color.field_background, R.color.outline, 14));
                     save.setEnabled(false);
                     save.setAlpha(0.48f);
                 });
@@ -364,7 +401,6 @@ public final class MainActivity extends Activity {
     private void loadPreferences() {
         enabled.setChecked(prefs.getBoolean("enabled", true));
         consumeOriginal.setChecked(prefs.getBoolean("consumeOriginal", false));
-        wakeOnScreenOff.setChecked(prefs.getBoolean("wakeOnScreenOff", false));
         int savedKeyCode = Config.normalizeKeyCode(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
         keyCode.setText(String.valueOf(savedKeyCode));
         if (prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE) == Config.LEGACY_DEFAULT_KEY_CODE) {
@@ -408,8 +444,19 @@ public final class MainActivity extends Activity {
         view.setText(value);
         view.setTextSize(sp);
         view.setTextColor(color(colorId));
-        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        view.setTypeface(uiTypeface(bold));
         return view;
+    }
+
+    private Typeface uiTypeface(boolean bold) {
+        if (baseTypeface == null) {
+            try {
+                baseTypeface = Typeface.createFromFile("/system/fonts/NotoSansCJK-Regular.ttc");
+            } catch (RuntimeException unavailable) {
+                baseTypeface = Typeface.create("sans-serif", Typeface.NORMAL);
+            }
+        }
+        return Typeface.create(baseTypeface, bold ? Typeface.BOLD : Typeface.NORMAL);
     }
 
     private GradientDrawable round(int colorId, int radius) {

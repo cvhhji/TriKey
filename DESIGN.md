@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: TriKey
-description: Chinese Android system-shortcut settings with a restrained cobalt palette and tactile hardware-key hierarchy.
+description: Compact Android hardware-shortcut settings with a restrained cobalt accent and clear gesture hierarchy.
 colors:
   primary: "#3568D4"
   on-primary: "#FFFFFF"
@@ -14,7 +14,7 @@ colors:
   text-tertiary: "#68707C"
 typography:
   sans:
-    fontFamily: "Roboto, Noto Sans CJK SC, sans-serif"
+    fontFamily: "Noto Sans CJK SC system font with sans-serif fallback"
   mono:
     fontFamily: "monospace"
 rounded:
@@ -58,11 +58,11 @@ The light theme uses cobalt `primary` (#3568D4) for the app mark, save action, a
 
 ## Typography
 
-Use Android's system sans family (`sans`) so Roboto and device CJK fallbacks remain native. The app name is the strongest page heading, card titles are medium-sized and bold, and body/helper text is kept to concise Chinese sentences. Technical values such as key codes and milliseconds remain plain text fields; no custom numeric font is required.
+Use the installed Noto Sans CJK system face for app-owned labels so a device-level handwriting font does not make settings hard to read; fall back to `sans-serif` if that face is unavailable. The app name is the strongest page heading, card titles are medium-sized and bold, and body/helper text is kept to concise Chinese sentences. Technical values such as key codes and milliseconds remain plain text fields; no custom numeric font is required.
 
 ## Layout
 
-The page is one natural-height `ScrollView`; it does not fix content to the viewport. Horizontal page inset is 18dp, card content inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
+The page is one natural-height `ScrollView`; it does not fix content to the viewport. A compact cobalt overview panel explains the key mapping and screen-off behavior, followed by editable settings cards. Horizontal page inset is 18dp, card content inset is 16dp, and major sections are separated by 14dp. Gesture selectors and important toggles have at least 48dp height. The save action stays in document flow after all gesture settings so short screens remain scrollable.
 
 ## Elevation & Depth
 
@@ -80,7 +80,7 @@ Android owns pressed, focused, checked, and disabled semantics for CheckBox, Swi
 
 ### Buttons and actions
 
-There is one primary action, “保存设置”. Native selectors keep platform popup behavior. Gesture names are visible above their action selectors, and custom values gain a visible label when the corresponding custom action is selected.
+There is one primary action, “保存设置”. Native selectors keep platform popup behavior while using the app's explicit CJK face and readable field contrast. Gesture names are visible above their action selectors, and custom values gain a visible label when the corresponding custom action is selected.
 
 ### Navigation and data display
 
@@ -88,7 +88,7 @@ The screen has no route navigation, lists, or tables. The top identity block pre
 
 ### Forms and overlays
 
-Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. The module status explains when saving is unavailable. No modal or custom popup is introduced.
+Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior and are described in the lock-screen card, not exposed as a separate toggle. The module status explains when saving is unavailable. No modal or custom popup is introduced.
 
 ### Iconography
 
@@ -105,6 +105,6 @@ Use concise Simplified Chinese copy and explicit action names. Key codes and dur
 ## Do's and Don'ts
 
 - **Do:** Keep the selector menus native and keyboard/touch operable.
-- **Do:** Explain credential-gated behavior next to the screen-off option.
+- **Do:** Explain that secure lock-screen authentication is system-owned and happens before the target opens.
 - **Don't:** Imply that TriKey bypasses or supplies lock-screen credentials.
 - **Don't:** Hide control labels in placeholders or rely on color alone for module status.
