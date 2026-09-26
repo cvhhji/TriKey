@@ -120,7 +120,6 @@ public final class MainActivity extends Activity {
         activationCard.setFocusable(false);
         activationCard.setClickable(false);
         activationIconHolder = new FrameLayout(this);
-        activationIconHolder.setGravity(Gravity.CENTER);
         activationIconHolder.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         activationIcon = new ImageView(this);
         activationIcon.setVisibility(View.GONE);
