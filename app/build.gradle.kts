@@ -22,8 +22,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 19
-        versionName = "1.4.5"
+        versionCode = 20
+        versionName = "1.4.6"
     }
 
     signingConfigs {

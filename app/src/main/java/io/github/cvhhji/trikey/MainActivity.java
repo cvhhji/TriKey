@@ -1,6 +1,7 @@
 package io.github.cvhhji.trikey;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -16,7 +17,10 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -41,6 +45,9 @@ public final class MainActivity extends Activity {
     private CheckBox consumeOriginal;
     private Switch launcherVisible;
     private LinearLayout activationCard;
+    private FrameLayout activationIconHolder;
+    private ImageView activationIcon;
+    private ProgressBar activationProgress;
     private TextView activationStatus;
     private EditText keyCode;
     private EditText doubleMs;
@@ -49,6 +56,14 @@ public final class MainActivity extends Activity {
     private SharedPreferences prefs;
     private volatile XposedService xposedService;
     private volatile boolean destroyed;
+    private int statusCheckGeneration;
+
+    private enum ActivationState {
+        CHECKING,
+        ACTIVE,
+        RESTART_REQUIRED,
+        INACTIVE
+    }
 
     @Override
     protected void onCreate(Bundle state) {
@@ -78,31 +93,53 @@ public final class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(24), dp(18), dp(36));
+        root.setPadding(dp(20), dp(24), dp(20), dp(36));
         root.setBackgroundColor(color(R.color.page_background));
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView mark = text("T", 22, true, R.color.on_primary);
+        TextView mark = text("T", 22, true, R.color.primary);
         mark.setGravity(Gravity.CENTER);
-        mark.setBackground(round(R.color.primary, 14));
-        header.addView(mark, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        mark.setBackground(round(R.color.primary_container, 16));
+        header.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.VERTICAL);
-        heading.addView(text("TriKey", 27, true, R.color.text_primary));
-        heading.addView(text("实体按键 · 三种手势", 14, false, R.color.text_secondary));
+        heading.addView(text("TriKey", 28, true, R.color.text_primary));
+        heading.addView(text("硬件快捷键设置", 14, false, R.color.text_secondary));
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1f);
         headingParams.setMargins(dp(14), 0, 0, 0);
         header.addView(heading, headingParams);
         root.addView(header);
 
-        activationCard = card();
-        activationStatus = text("正在检查…", 13, false,
-                R.color.text_secondary);
-        activationStatus.setLineSpacing(dp(4), 1f);
-        activationCard.addView(activationStatus);
-        root.addView(activationCard, margins(0, 16, 0, 0));
+        activationCard = new LinearLayout(this);
+        activationCard.setOrientation(LinearLayout.HORIZONTAL);
+        activationCard.setGravity(Gravity.CENTER_VERTICAL);
+        activationCard.setPadding(dp(20), dp(18), dp(20), dp(18));
+        activationCard.setMinimumHeight(dp(96));
+        activationCard.setFocusable(false);
+        activationCard.setClickable(false);
+        activationIconHolder = new FrameLayout(this);
+        activationIconHolder.setGravity(Gravity.CENTER);
+        activationIconHolder.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        activationIcon = new ImageView(this);
+        activationIcon.setVisibility(View.GONE);
+        activationIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER);
+        activationIconHolder.addView(activationIcon, iconParams);
+        activationProgress = new ProgressBar(this);
+        activationProgress.setIndeterminateTintList(ColorStateList.valueOf(color(R.color.primary)));
+        activationProgress.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER);
+        activationIconHolder.addView(activationProgress, progressParams);
+        activationCard.addView(activationIconHolder, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        activationStatus = text("正在检查…", 22, true, R.color.text_secondary);
+        activationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        LinearLayout.LayoutParams activationStatusParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        activationStatusParams.setMargins(dp(16), 0, 0, 0);
+        activationCard.addView(activationStatus, activationStatusParams);
+        setActivation(ActivationState.CHECKING);
+        root.addView(activationCard, margins(0, 20, 0, 0));
 
         LinearLayout general = card("常规");
         enabled = new CheckBox(this);
@@ -122,7 +159,7 @@ public final class MainActivity extends Activity {
         consumeOriginal.setMinHeight(dp(48));
         consumeOriginal.setChecked(false);
         general.addView(consumeOriginal, margins(0, 4, 0, 0));
-        general.addView(text("开启后目标按键只执行 TriKey 动作；遇到兼容问题时请关闭。", 12, false,
+        general.addView(text("开启后目标按键只执行 TriKey 动作；遇到兼容问题时请关闭。", 13, false,
                 R.color.text_tertiary), margins(4, 0, 0, 0));
 
         launcherVisible = new Switch(this);
@@ -134,7 +171,7 @@ public final class MainActivity extends Activity {
         launcherVisible.setOnCheckedChangeListener((button, visible) -> setLauncherVisible(visible));
         launcherVisible.setMinHeight(dp(48));
         general.addView(launcherVisible, margins(0, 8, 0, 0));
-        general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
+        general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 13, false, R.color.text_tertiary), margins(4, 2, 0, 0));
         root.addView(general, margins(0, 14, 0, 0));
 
         LinearLayout timing = card("按键与时序");
@@ -155,13 +192,13 @@ public final class MainActivity extends Activity {
         save.setAllCaps(false);
         save.setEnabled(false);
         save.setAlpha(0.48f);
-        save.setBackground(round(R.color.primary, 14));
+        save.setBackground(round(R.color.primary, 16));
         save.setOnClickListener(v -> save());
-        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(56));
         saveParams.setMargins(0, dp(20), 0, dp(14));
         root.addView(save, saveParams);
 
-        TextView hint = text("ColorOS 实体快捷键默认按键码为 780，不同系统版本可能不同。", 12, false, R.color.text_tertiary);
+        TextView hint = text("ColorOS 实体快捷键默认按键码为 780，不同系统版本可能不同。", 13, false, R.color.text_tertiary);
         hint.setLineSpacing(0, 1.2f);
         root.addView(hint);
 
@@ -211,11 +248,11 @@ public final class MainActivity extends Activity {
             index++;
         }
         spinner.setSelection(Math.min(index, labels.length - 1));
-        spinner.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
+        spinner.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 14));
         spinner.setPadding(dp(12), 0, dp(8), 0);
-        section.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
+        section.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
-        TextView valueLabel = text("参数", 12, false, R.color.text_secondary);
+        TextView valueLabel = text("参数", 13, false, R.color.text_secondary);
         valueLabel.setVisibility(View.GONE);
         section.addView(valueLabel, margins(0, 10, 0, 5));
         EditText value = new EditText(this);
@@ -231,7 +268,7 @@ public final class MainActivity extends Activity {
         value.setMinLines(1);
         value.setMaxLines(3);
         value.setPadding(dp(12), dp(10), dp(12), dp(10));
-        value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
+        value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 14));
         value.setText("");
         value.setVisibility(View.GONE);
         section.addView(value, margins(0, 0, 0, 0));
@@ -259,15 +296,15 @@ public final class MainActivity extends Activity {
 
     private LinearLayout card(String title) {
         LinearLayout layout = card();
-        layout.addView(text(title, 17, true, R.color.text_primary), margins(0, 0, 0, 10));
+        layout.addView(text(title, 18, true, R.color.text_primary), margins(0, 0, 0, 12));
         return layout;
     }
 
     private LinearLayout card() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(16), dp(14), dp(16), dp(16));
-        layout.setBackground(roundWithStroke(R.color.card_background, R.color.outline, 16));
+        layout.setPadding(dp(20), dp(18), dp(20), dp(20));
+        layout.setBackground(round(R.color.card_background, 20));
         return layout;
     }
 
@@ -276,13 +313,13 @@ public final class MainActivity extends Activity {
         label.setTypeface(uiTypeface(false));
         label.setTextColor(color(R.color.text_primary));
         label.setTextSize(15);
-        if (dropdown) label.setPadding(dp(16), dp(12), dp(16), dp(12));
+        if (dropdown) label.setPadding(dp(16), dp(14), dp(16), dp(14));
         return label;
     }
 
     private EditText numberField(LinearLayout root, String label, int value) {
-        TextView fieldLabel = text(label, 13, false, R.color.text_secondary);
-        root.addView(fieldLabel, margins(0, 8, 0, 5));
+        TextView fieldLabel = text(label, 14, false, R.color.text_secondary);
+        root.addView(fieldLabel, margins(0, 8, 0, 6));
         EditText input = new EditText(this);
         input.setId(View.generateViewId());
         fieldLabel.setLabelFor(input.getId());
@@ -290,12 +327,12 @@ public final class MainActivity extends Activity {
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(value));
         input.setTextColor(color(R.color.text_primary));
-        input.setTextSize(15);
+        input.setTextSize(16);
         input.setTypeface(uiTypeface(false));
         input.setSingleLine(true);
         input.setPadding(dp(12), 0, dp(12), 0);
-        input.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
-        root.addView(input, new LinearLayout.LayoutParams(-1, dp(46)));
+        input.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 14));
+        root.addView(input, new LinearLayout.LayoutParams(-1, dp(50)));
         return input;
     }
 
@@ -391,9 +428,10 @@ public final class MainActivity extends Activity {
             public void onServiceDied(XposedService service) {
                 runOnUiThread(() -> {
                     if (destroyed) return;
+                    statusCheckGeneration++;
                     xposedService = null;
                     prefs = null;
-                    setActivation(false);
+                    setActivation(ActivationState.INACTIVE);
                     save.setEnabled(false);
                     save.setAlpha(0.48f);
                 });
@@ -405,13 +443,14 @@ public final class MainActivity extends Activity {
         if (destroyed) return;
         XposedService service = xposedService;
         if (service == null) {
-            setActivation(false);
+            statusCheckGeneration++;
+            setActivation(ActivationState.INACTIVE);
             return;
         }
-        activationStatus.setText("正在检查…");
-        activationStatus.setTextColor(color(R.color.text_secondary));
+        int generation = ++statusCheckGeneration;
+        setActivation(ActivationState.CHECKING);
         statusWorker.execute(() -> {
-            boolean active = false;
+            ActivationState result = ActivationState.INACTIVE;
             try {
                 HookedTarget system = null;
                 for (HookedTarget target : service.getRunningTargets()) {
@@ -426,35 +465,76 @@ public final class MainActivity extends Activity {
                             .getPackageInfo(getPackageName(), 0);
                     long currentVersion = appInfo.versionCode;
                     long loadedVersion = system.getLoadedVersionCode();
+                    HookedTarget.State targetState = system.getState();
                     boolean current = loadedVersion == currentVersion;
-                    boolean upToDate = system.getState() == HookedTarget.State.UP_TO_DATE;
-                    active = current && upToDate;
+                    boolean upToDate = targetState == HookedTarget.State.UP_TO_DATE;
+                    if (current && upToDate) {
+                        result = ActivationState.ACTIVE;
+                    } else if (targetState == HookedTarget.State.STALE
+                            || (loadedVersion > 0 && loadedVersion != currentVersion)) {
+                        result = ActivationState.RESTART_REQUIRED;
+                    }
                 }
             } catch (Throwable ignored) {
-                active = false;
+                result = ActivationState.INACTIVE;
             }
-            boolean verified = active;
+            ActivationState verified = result;
             runOnUiThread(() -> {
-                if (!destroyed && !isFinishing()) setActivation(verified);
+                if (!destroyed && !isFinishing() && generation == statusCheckGeneration) {
+                    setActivation(verified);
+                }
             });
         });
     }
 
-    private void setActivation(boolean active) {
-        GradientDrawable background = new GradientDrawable();
-        background.setCornerRadius(dp(18));
-        if (active) {
-            background.setColor(color(R.color.status_active_background));
-            background.setStroke(dp(1), color(R.color.status_active_border));
-            activationStatus.setTextColor(color(R.color.status_active_text));
-            activationStatus.setText("已激活");
+    private void setActivation(ActivationState state) {
+        int cardColor;
+        int iconBackground;
+        int iconForeground;
+        int labelColor;
+        int iconResource;
+        String label;
+        boolean checking = state == ActivationState.CHECKING;
+        if (state == ActivationState.ACTIVE) {
+            cardColor = R.color.primary_container;
+            iconBackground = R.color.primary;
+            iconForeground = R.color.on_primary;
+            labelColor = R.color.on_primary_container;
+            iconResource = R.drawable.ic_status_check;
+            label = "已激活";
+        } else if (state == ActivationState.RESTART_REQUIRED) {
+            cardColor = R.color.warning_container;
+            iconBackground = R.color.warning;
+            iconForeground = R.color.on_warning;
+            labelColor = R.color.on_warning_container;
+            iconResource = R.drawable.ic_status_attention;
+            label = "需要重启";
+        } else if (state == ActivationState.INACTIVE) {
+            cardColor = R.color.error_container;
+            iconBackground = R.color.error;
+            iconForeground = R.color.on_error;
+            labelColor = R.color.on_error_container;
+            iconResource = R.drawable.ic_status_attention;
+            label = "未激活";
         } else {
-            background.setColor(color(R.color.status_inactive_background));
-            background.setStroke(dp(1), color(R.color.status_inactive_border));
-            activationStatus.setTextColor(color(R.color.status_inactive_text));
-            activationStatus.setText("未激活");
+            cardColor = R.color.card_background;
+            iconBackground = R.color.primary_container;
+            iconForeground = R.color.primary;
+            labelColor = R.color.text_secondary;
+            iconResource = 0;
+            label = "正在检查…";
         }
-        activationCard.setBackground(background);
+        activationCard.setBackground(round(cardColor, 24));
+        activationIconHolder.setBackground(round(iconBackground, 26));
+        activationStatus.setText(label);
+        activationStatus.setTextColor(color(labelColor));
+        activationProgress.setIndeterminateTintList(ColorStateList.valueOf(color(iconForeground)));
+        activationProgress.setVisibility(checking ? View.VISIBLE : View.GONE);
+        activationIcon.setVisibility(checking ? View.GONE : View.VISIBLE);
+        if (!checking) {
+            activationIcon.setImageResource(iconResource);
+            activationIcon.setImageTintList(ColorStateList.valueOf(color(iconForeground)));
+        }
     }
 
     private void loadPreferences() {

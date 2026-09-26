@@ -1,17 +1,21 @@
 <resources>
-    <color name="primary">#3568D4</color>
+    <color name="primary">#51625C</color>
     <color name="on_primary">#FFFFFF</color>
-    <color name="page_background">#F5F6F8</color>
-    <color name="card_background">#FFFFFF</color>
-    <color name="field_background">#F8F9FB</color>
-    <color name="outline">#E2E5EA</color>
-    <color name="text_primary">#17191D</color>
-    <color name="text_secondary">#5D626B</color>
-    <color name="text_tertiary">#68707C</color>
-    <color name="status_active_background">#EAF5ED</color>
-    <color name="status_active_border">#B9DDC0</color>
-    <color name="status_active_text">#1F6B37</color>
-    <color name="status_inactive_background">#FFF4E5</color>
-    <color name="status_inactive_border">#F2CE97</color>
-    <color name="status_inactive_text">#8A5200</color>
+    <color name="primary_container">#D4E7DF</color>
+    <color name="on_primary_container">#0F1E1A</color>
+    <color name="warning">#98621E</color>
+    <color name="on_warning">#FFFFFF</color>
+    <color name="warning_container">#F5E7D2</color>
+    <color name="on_warning_container">#4E361A</color>
+    <color name="error">#BA1A1A</color>
+    <color name="on_error">#FFFFFF</color>
+    <color name="error_container">#FFDAD6</color>
+    <color name="on_error_container">#410002</color>
+    <color name="page_background">#EFEDEC</color>
+    <color name="card_background">#FAF9F7</color>
+    <color name="field_background">#F5F3F2</color>
+    <color name="outline">#C7C6C5</color>
+    <color name="text_primary">#1B1C1B</color>
+    <color name="text_secondary">#464746</color>
+    <color name="text_tertiary">#686A68</color>
 </resources>
