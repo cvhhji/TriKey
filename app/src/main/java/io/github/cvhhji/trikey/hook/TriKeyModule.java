@@ -1,15 +1,21 @@
 package io.github.cvhhji.trikey.hook;
 
 import android.annotation.SuppressLint;
+import android.app.ActivityOptions;
+import android.app.KeyguardManager;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.InputDevice;
@@ -37,6 +43,12 @@ public final class TriKeyModule extends XposedModule {
     private KeyGestureDetector<Bundle> gestureDetector;
     private Context systemContext;
     private SharedPreferences preferences;
+    private BroadcastReceiver stateReceiver;
+    private PendingLaunch pendingLaunch;
+    private boolean pendingScreenOffGesture;
+    private boolean currentPressWasSecond;
+    private boolean currentPressScreenOff;
+    private Runnable clearScreenOffGestureTask;
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -112,6 +124,7 @@ public final class TriKeyModule extends XposedModule {
                         if (source == null || !source.getBoolean("enabled", true)) {
                             KeyGestureDetector<Bundle> detector = gestureDetector;
                             if (detector != null) detector.cancel();
+                            clearScreenOffGestureState();
                             return chain.proceed();
                         }
                         int keyCode = Config.normalizeKeyCode(
@@ -142,7 +155,16 @@ public final class TriKeyModule extends XposedModule {
         int doubleMs = config.getInt("doubleMs", 320);
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             systemContext = context;
-            detector.onDown(SystemClock.uptimeMillis(), doubleMs, longMs, new Bundle(config));
+            currentPressWasSecond = pendingScreenOffGesture;
+            if (clearScreenOffGestureTask != null) {
+                handler.removeCallbacks(clearScreenOffGestureTask);
+                clearScreenOffGestureTask = null;
+            }
+            pendingScreenOffGesture = false;
+            currentPressScreenOff = currentPressWasSecond || isScreenOff(context);
+            Bundle snapshot = new Bundle(config);
+            snapshot.putBoolean("screenOffAtGesture", currentPressScreenOff);
+            detector.onDown(SystemClock.uptimeMillis(), doubleMs, longMs, snapshot);
             return;
         }
         if (event.getAction() != KeyEvent.ACTION_UP) return;
@@ -150,13 +172,57 @@ public final class TriKeyModule extends XposedModule {
                 SystemClock.uptimeMillis() - event.getDownTime(),
                 event.getEventTime() - event.getDownTime());
         systemContext = context;
-        detector.onUp(SystemClock.uptimeMillis(), heldMs, doubleMs, longMs, new Bundle(config));
+        Bundle snapshot = new Bundle(config);
+        snapshot.putBoolean("screenOffAtGesture", currentPressScreenOff);
+        detector.onUp(SystemClock.uptimeMillis(), heldMs, doubleMs, longMs, snapshot);
+        if (currentPressWasSecond || heldMs >= longMs || !currentPressScreenOff) {
+            clearScreenOffGestureState();
+        } else {
+            pendingScreenOffGesture = true;
+            clearScreenOffGestureTask = () -> {
+                pendingScreenOffGesture = false;
+                clearScreenOffGestureTask = null;
+            };
+            handler.postDelayed(clearScreenOffGestureTask, doubleMs + 50L);
+        }
     }
 
     private void execute(Context context, Bundle config, String gesture) {
         String type = config.getString(gesture + "Type", "none");
-        String value = config.getString(gesture + "Value", "");
         log(Log.INFO, TAG, "Gesture fired: gesture=" + gesture + ", type=" + type);
+        if (context == null) return;
+        boolean screenOff = config.getBoolean("screenOffAtGesture", false) || isScreenOff(context);
+        if (!WakeLaunchPolicy.shouldWake(
+                config.getBoolean("wakeOnScreenOff", false), screenOff, type)) {
+            performAction(context, config, gesture, false);
+            return;
+        }
+        try {
+            registerStateReceiver(context);
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to monitor device authentication", error);
+        }
+        try {
+            wakeDevice(context);
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to wake display", error);
+        }
+        if (WakeLaunchPolicy.shouldWaitForAuthentication(isKeyguardSecure(context))) {
+            if (stateReceiver == null) {
+                log(Log.ERROR, TAG, "Secure screen-off action canceled because unlock monitoring is unavailable");
+                return;
+            }
+            queueUntilUnlocked(context, config, gesture);
+            log(Log.INFO, TAG, "Screen-off action waiting for successful device authentication");
+            return;
+        }
+        performAction(context, config, gesture, true);
+    }
+
+    private void performAction(Context context, Bundle config, String gesture,
+                               boolean dismissKeyguardIfInsecure) {
+        String type = config.getString(gesture + "Type", "none");
+        String value = config.getString(gesture + "Value", "");
         try {
             Intent intent;
             switch (type) {
@@ -237,9 +303,153 @@ public final class TriKeyModule extends XposedModule {
                     return;
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            context.startActivity(intent);
+            startActivity(context, intent, dismissKeyguardIfInsecure);
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Action failed for " + gesture + ": " + type, error);
+        }
+    }
+
+    private boolean isScreenOff(Context context) {
+        try {
+            PowerManager powerManager = context.getSystemService(PowerManager.class);
+            return powerManager != null && !powerManager.isInteractive();
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to read interactive state", error);
+            return false;
+        }
+    }
+
+    private boolean isKeyguardSecure(Context context) {
+        try {
+            KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+            return keyguard == null || keyguard.isKeyguardSecure();
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to verify lock-screen security; treating device as secure", error);
+            return true;
+        }
+    }
+
+    private boolean isDeviceLocked(Context context) {
+        try {
+            KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+            return keyguard == null || keyguard.isDeviceLocked();
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to verify unlock state", error);
+            return true;
+        }
+    }
+
+    private void wakeDevice(Context context) throws ReflectiveOperationException {
+        PowerManager powerManager = context.getSystemService(PowerManager.class);
+        if (powerManager == null) throw new IllegalStateException("PowerManager is unavailable");
+        Method method = WakeUpApiCompat.findWakeUpMethod(powerManager.getClass());
+        Object[] arguments = WakeUpApiCompat.arguments(
+                method, SystemClock.uptimeMillis(), 4, "TriKey", 0);
+        method.setAccessible(true);
+        method.invoke(powerManager, arguments);
+        log(Log.INFO, TAG, "Woke display using PowerManager.wakeUp/"
+                + method.getParameterTypes().length);
+    }
+
+    private void startActivity(Context context, Intent intent, boolean dismissIfInsecure)
+            throws ReflectiveOperationException {
+        if (!dismissIfInsecure || !WakeLaunchPolicy.shouldDismissKeyguard(isKeyguardSecure(context))) {
+            context.startActivity(intent);
+            return;
+        }
+        ActivityOptions options = ActivityOptions.makeBasic();
+        try {
+            Method dismiss = ActivityOptions.class.getDeclaredMethod("setDismissKeyguardIfInsecure");
+            dismiss.setAccessible(true);
+            dismiss.invoke(options);
+            context.startActivity(intent, options.toBundle());
+        } catch (NoSuchMethodException unavailable) {
+            log(Log.WARN, TAG, "Insecure keyguard dismissal option is unavailable; launching normally");
+            context.startActivity(intent);
+        }
+    }
+
+    private void registerStateReceiver(Context context) {
+        if (stateReceiver != null) return;
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context receiverContext, Intent intent) {
+                if (intent == null) return;
+                if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                    clearPendingLaunch("screen turned off before unlock");
+                } else if (Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
+                    launchPendingIfUnlocked();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_USER_PRESENT);
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(receiver, filter, null, handler, Context.RECEIVER_EXPORTED);
+        } else {
+            context.registerReceiver(receiver, filter, null, handler);
+        }
+        stateReceiver = receiver;
+    }
+
+    private void queueUntilUnlocked(Context context, Bundle config, String gesture) {
+        clearPendingLaunch("replaced by a newer key action");
+        PendingLaunch queued = new PendingLaunch(context, new Bundle(config), gesture);
+        pendingLaunch = queued;
+        queued.expirationTask = () -> {
+            if (pendingLaunch == queued) clearPendingLaunch("unlock timed out");
+        };
+        handler.postDelayed(queued.expirationTask, 120_000L);
+    }
+
+    private void launchPendingIfUnlocked() {
+        PendingLaunch queued = pendingLaunch;
+        if (queued == null) return;
+        checkPendingLaunchUnlock(queued);
+    }
+
+    private void checkPendingLaunchUnlock(PendingLaunch queued) {
+        if (pendingLaunch != queued) return;
+        if (isDeviceLocked(queued.context)) {
+            if (++queued.unlockChecks <= 8) {
+                handler.postDelayed(() -> checkPendingLaunchUnlock(queued), 250L);
+            }
+            return;
+        }
+        pendingLaunch = null;
+        handler.removeCallbacks(queued.expirationTask);
+        log(Log.INFO, TAG, "Device authentication completed; running queued action");
+        performAction(queued.context, queued.config, queued.gesture, false);
+    }
+
+    private void clearPendingLaunch(String reason) {
+        if (pendingLaunch == null) return;
+        PendingLaunch queued = pendingLaunch;
+        pendingLaunch = null;
+        handler.removeCallbacks(queued.expirationTask);
+        log(Log.INFO, TAG, "Cleared queued screen-off action: " + reason);
+    }
+
+    private void clearScreenOffGestureState() {
+        pendingScreenOffGesture = false;
+        if (clearScreenOffGestureTask != null) {
+            handler.removeCallbacks(clearScreenOffGestureTask);
+            clearScreenOffGestureTask = null;
+        }
+    }
+
+    private static final class PendingLaunch {
+        final Context context;
+        final Bundle config;
+        final String gesture;
+        Runnable expirationTask;
+        int unlockChecks;
+
+        PendingLaunch(Context context, Bundle config, String gesture) {
+            this.context = context;
+            this.config = config;
+            this.gesture = gesture;
         }
     }
 
@@ -286,7 +496,6 @@ public final class TriKeyModule extends XposedModule {
             manager = inputManager.getMethod("getInstance").invoke(null);
             inject = inputManager.getMethod("injectInputEvent", InputEvent.class, int.class);
         } catch (ClassNotFoundException | NoSuchMethodException unavailable) {
-            // InputManagerGlobal replaced InputManager.getInstance() on newer Android releases.
             inputManager = Class.forName("android.hardware.input.InputManager");
             manager = inputManager.getMethod("getInstance").invoke(null);
             inject = inputManager.getMethod("injectInputEvent", InputEvent.class, int.class);
@@ -315,6 +524,7 @@ public final class TriKeyModule extends XposedModule {
         }
         config.putBoolean("enabled", source.getBoolean("enabled", true));
         config.putBoolean("consumeOriginal", source.getBoolean("consumeOriginal", false));
+        config.putBoolean("wakeOnScreenOff", source.getBoolean("wakeOnScreenOff", false));
         config.putInt("keyCode", Config.normalizeKeyCode(
                 source.getInt("keyCode", Config.DEFAULT_KEY_CODE)));
         config.putInt("doubleMs", source.getInt("doubleMs", 320));

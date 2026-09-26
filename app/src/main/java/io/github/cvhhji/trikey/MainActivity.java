@@ -36,6 +36,8 @@ public final class MainActivity extends Activity {
     private CheckBox enabled;
     private CheckBox consumeOriginal;
     private Switch launcherVisible;
+    private Switch wakeOnScreenOff;
+    private TextView moduleStatus;
     private EditText keyCode;
     private EditText doubleMs;
     private EditText longMs;
@@ -84,6 +86,8 @@ public final class MainActivity extends Activity {
         heading.setOrientation(LinearLayout.VERTICAL);
         heading.addView(text("TriKey", 27, true, R.color.text_primary));
         heading.addView(text("一个按键，三种动作", 14, false, R.color.text_secondary));
+        moduleStatus = text("正在连接模块服务…", 12, false, R.color.text_tertiary);
+        heading.addView(moduleStatus, margins(0, 4, 0, 0));
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1f);
         headingParams.setMargins(dp(14), 0, 0, 0);
         header.addView(heading, headingParams);
@@ -98,6 +102,7 @@ public final class MainActivity extends Activity {
         enabled.setText("启用按键映射");
         enabled.setTextColor(color(R.color.text_primary));
         enabled.setTextSize(16);
+        enabled.setMinHeight(dp(48));
         enabled.setChecked(true);
         general.addView(enabled);
 
@@ -105,6 +110,7 @@ public final class MainActivity extends Activity {
         consumeOriginal.setText("替代系统原动作");
         consumeOriginal.setTextColor(color(R.color.text_primary));
         consumeOriginal.setTextSize(16);
+        consumeOriginal.setMinHeight(dp(48));
         consumeOriginal.setChecked(false);
         general.addView(consumeOriginal, margins(0, 4, 0, 0));
         general.addView(text("开启后目标按键只执行 TriKey 动作；遇到兼容问题时请关闭。", 12, false,
@@ -116,9 +122,24 @@ public final class MainActivity extends Activity {
         launcherVisible.setTextSize(16);
         launcherVisible.setChecked(isLauncherVisible());
         launcherVisible.setOnCheckedChangeListener((button, visible) -> setLauncherVisible(visible));
+        launcherVisible.setMinHeight(dp(48));
         general.addView(launcherVisible, margins(0, 8, 0, 0));
         general.addView(text("隐藏后可从 LSPosed 的模块列表重新打开。", 12, false, R.color.text_tertiary), margins(4, 2, 0, 0));
         root.addView(general);
+
+        LinearLayout screenOff = card("熄屏时执行");
+        wakeOnScreenOff = new Switch(this);
+        wakeOnScreenOff.setText("唤醒屏幕并继续跳转");
+        wakeOnScreenOff.setTextColor(color(R.color.text_primary));
+        wakeOnScreenOff.setTextSize(16);
+        wakeOnScreenOff.setMinHeight(dp(48));
+        screenOff.addView(wakeOnScreenOff);
+        TextView screenOffHint = text(
+                "未设置 PIN、图案或密码时自动继续；有安全锁屏时，验证成功后再打开目标。截图、返回、锁屏和状态栏动作不变。",
+                13, false, R.color.text_secondary);
+        screenOffHint.setLineSpacing(0, 1.2f);
+        screenOff.addView(screenOffHint, margins(4, 2, 0, 0));
+        root.addView(screenOff, margins(0, 14, 0, 0));
 
         LinearLayout timing = card("按键与时序");
         keyCode = numberField(timing, "按键码", Config.DEFAULT_KEY_CODE);
@@ -136,6 +157,7 @@ public final class MainActivity extends Activity {
         save.setTextColor(color(R.color.on_primary));
         save.setAllCaps(false);
         save.setEnabled(false);
+        save.setAlpha(0.48f);
         save.setBackground(round(R.color.primary, 14));
         save.setOnClickListener(v -> save());
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -157,7 +179,10 @@ public final class MainActivity extends Activity {
         LinearLayout section = card(label);
         Spinner spinner = new Spinner(this);
         String[] labels = actions.keySet().toArray(new String[0]);
-        spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setContentDescription(label + "时执行的动作");
         String selected = defaultType(key);
         int index = 0;
         for (String value : actions.values()) {
@@ -169,8 +194,14 @@ public final class MainActivity extends Activity {
         spinner.setPadding(dp(12), 0, dp(8), 0);
         section.addView(spinner, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        TextView valueLabel = text("参数", 12, false, R.color.text_secondary);
+        valueLabel.setVisibility(View.GONE);
+        section.addView(valueLabel, margins(0, 10, 0, 5));
         EditText value = new EditText(this);
-        value.setHint("包名或 Intent URI（预设动作可留空）");
+        value.setId(View.generateViewId());
+        valueLabel.setLabelFor(value.getId());
+        value.setContentDescription(label + "动作参数");
+        value.setHint("填写自定义动作参数");
         value.setHintTextColor(color(R.color.text_tertiary));
         value.setTextColor(color(R.color.text_primary));
         value.setTextSize(14);
@@ -180,17 +211,22 @@ public final class MainActivity extends Activity {
         value.setPadding(dp(12), dp(10), dp(12), dp(10));
         value.setBackground(roundWithStroke(R.color.field_background, R.color.outline, 10));
         value.setText("");
-        section.addView(value, margins(0, 10, 0, 0));
+        value.setVisibility(View.GONE);
+        section.addView(value, margins(0, 0, 0, 0));
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String type = actions.get(String.valueOf(parent.getItemAtPosition(position)));
-                value.setVisibility("app".equals(type) || "intent".equals(type) ? View.VISIBLE : View.GONE);
-                value.setHint("app".equals(type) ? "应用包名" : "Intent URI");
+                boolean custom = "app".equals(type) || "intent".equals(type);
+                valueLabel.setText("app".equals(type) ? "应用包名" : "Intent URI");
+                value.setHint("app".equals(type) ? "例如 com.example.app" : "粘贴 Intent URI");
+                valueLabel.setVisibility(custom ? View.VISIBLE : View.GONE);
+                value.setVisibility(custom ? View.VISIBLE : View.GONE);
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
+                valueLabel.setVisibility(View.GONE);
                 value.setVisibility(View.GONE);
             }
         });
@@ -209,8 +245,12 @@ public final class MainActivity extends Activity {
     }
 
     private EditText numberField(LinearLayout root, String label, int value) {
-        root.addView(text(label, 13, false, R.color.text_secondary), margins(0, 8, 0, 5));
+        TextView fieldLabel = text(label, 13, false, R.color.text_secondary);
+        root.addView(fieldLabel, margins(0, 8, 0, 5));
         EditText input = new EditText(this);
+        input.setId(View.generateViewId());
+        fieldLabel.setLabelFor(input.getId());
+        input.setContentDescription(label);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(value));
         input.setTextColor(color(R.color.text_primary));
@@ -242,6 +282,7 @@ public final class MainActivity extends Activity {
             SharedPreferences.Editor e = prefs.edit()
                     .putBoolean("enabled", enabled.isChecked())
                     .putBoolean("consumeOriginal", consumeOriginal.isChecked())
+                    .putBoolean("wakeOnScreenOff", wakeOnScreenOff.isChecked())
                     .putInt("keyCode", key)
                     .putInt("doubleMs", dbl)
                     .putInt("longMs", lng);
@@ -302,7 +343,9 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     prefs = service.getRemotePreferences(Config.PREFS);
                     loadPreferences();
+                    moduleStatus.setText("模块服务已连接 · 设置可保存");
                     save.setEnabled(true);
+                    save.setAlpha(1f);
                 });
             }
 
@@ -310,7 +353,9 @@ public final class MainActivity extends Activity {
             public void onServiceDied(XposedService service) {
                 runOnUiThread(() -> {
                     prefs = null;
+                    moduleStatus.setText("模块服务已断开 · 设置暂不可保存");
                     save.setEnabled(false);
+                    save.setAlpha(0.48f);
                 });
             }
         });
@@ -319,6 +364,7 @@ public final class MainActivity extends Activity {
     private void loadPreferences() {
         enabled.setChecked(prefs.getBoolean("enabled", true));
         consumeOriginal.setChecked(prefs.getBoolean("consumeOriginal", false));
+        wakeOnScreenOff.setChecked(prefs.getBoolean("wakeOnScreenOff", false));
         int savedKeyCode = Config.normalizeKeyCode(prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE));
         keyCode.setText(String.valueOf(savedKeyCode));
         if (prefs.getInt("keyCode", Config.DEFAULT_KEY_CODE) == Config.LEGACY_DEFAULT_KEY_CODE) {
