@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 @SuppressLint("CustomSplashScreen")
 public final class KeyguardLaunchActivity extends Activity {
@@ -21,14 +22,16 @@ public final class KeyguardLaunchActivity extends Activity {
     public static final String EXTRA_SYSTEM_HANDOFF = "io.github.cvhhji.trikey.extra.SYSTEM_HANDOFF";
     public static final String EXTRA_HANDOFF_ID = "io.github.cvhhji.trikey.extra.HANDOFF_ID";
     public static final String ACTION_HANDOFF_STARTED = "io.github.cvhhji.trikey.action.HANDOFF_STARTED";
+    public static final String ACTION_REQUEST_HANDOFF = "io.github.cvhhji.trikey.action.REQUEST_HANDOFF";
     public static final String ACTION_CANCEL_HANDOFF = "io.github.cvhhji.trikey.action.CANCEL_HANDOFF";
     private static final String TAG = "TriKey";
-    private static final long HANDOFF_ACK_TIMEOUT_MS = 120L;
+    private static final long HANDOFF_ACK_TIMEOUT_MS = 1_500L;
 
     private boolean dismissalRequested;
     private boolean completed;
     private boolean authenticationSucceeded;
     private boolean systemHandoffAcknowledged;
+    private boolean handoffRequestSent;
     private boolean handoffReceiverRegistered;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable handoffFallback = () -> finishRequest(true,
@@ -85,23 +88,15 @@ public final class KeyguardLaunchActivity extends Activity {
             return;
         }
         if (!keyguard.isKeyguardLocked() && !keyguard.isDeviceLocked()) {
-            finishRequest(true, "Device was already authenticated");
+            handleAuthenticationSucceeded("Device was already authenticated");
             return;
         }
         Log.i(TAG, "Requesting keyguard dismissal from visible activity");
         keyguard.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
             @Override
             public void onDismissSucceeded() {
-                runOnUiThread(() -> {
-                    authenticationSucceeded = true;
-                    if (!getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false)
-                            || systemHandoffAcknowledged) {
-                        finishRequest(true, "System authentication succeeded");
-                    } else {
-                        Log.i(TAG, "Waiting briefly for native target-launch acknowledgement");
-                        mainHandler.postDelayed(handoffFallback, HANDOFF_ACK_TIMEOUT_MS);
-                    }
-                });
+                runOnUiThread(() -> handleAuthenticationSucceeded(
+                        "System authentication succeeded"));
             }
 
             @Override
@@ -114,13 +109,42 @@ public final class KeyguardLaunchActivity extends Activity {
                 runOnUiThread(() -> {
                     boolean authenticated = !keyguard.isKeyguardLocked()
                             && !keyguard.isDeviceLocked();
-                    if (!authenticated) cancelSystemHandoff();
-                    finishRequest(authenticated, authenticated
-                            ? "System keyguard had already cleared"
-                            : "System keyguard challenge could not be shown");
+                    if (authenticated) {
+                        handleAuthenticationSucceeded("System keyguard had already cleared");
+                    } else {
+                        finishRequest(false, "System keyguard challenge could not be shown");
+                    }
                 });
             }
         });
+    }
+
+    private void handleAuthenticationSucceeded(String reason) {
+        authenticationSucceeded = true;
+        if (!getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false)) {
+            finishRequest(true, reason);
+            return;
+        }
+        if (systemHandoffAcknowledged) {
+            finishRequest(true, reason);
+            return;
+        }
+        requestSystemHandoff();
+        Log.i(TAG, "Requesting authenticated target launch from system_server");
+        mainHandler.removeCallbacks(handoffFallback);
+        mainHandler.postDelayed(handoffFallback, HANDOFF_ACK_TIMEOUT_MS);
+    }
+
+    private void requestSystemHandoff() {
+        if (handoffRequestSent) return;
+        String id = getIntent().getStringExtra(EXTRA_HANDOFF_ID);
+        if (id == null) return;
+        handoffRequestSent = true;
+        Intent request = new Intent(ACTION_REQUEST_HANDOFF)
+                .setPackage("android")
+                .putExtra(EXTRA_HANDOFF_ID, id);
+        Log.i(TAG, "Sending authenticated target-launch request to system_server");
+        sendBroadcast(request);
     }
 
     private void finishRequest(boolean authenticated, String reason) {
@@ -135,14 +159,21 @@ public final class KeyguardLaunchActivity extends Activity {
             } else {
                 try {
                     cancelSystemHandoff();
-                    Intent target = targetIntent();
-                    if (target == null) throw new IllegalArgumentException("Missing target action");
-                    if (getIntent().getBooleanExtra(EXTRA_TARGET_IS_SERVICE, false)) {
-                        startForegroundService(target);
+                    boolean targetIsService = getIntent().getBooleanExtra(EXTRA_TARGET_IS_SERVICE, false);
+                    boolean systemHandoff = getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false);
+                    if (targetIsService && systemHandoff) {
+                        Log.e(TAG, "System service handoff was not acknowledged; refusing app-UID launch");
+                        Toast.makeText(this, "系统识屏启动失败，请检查模块状态", Toast.LENGTH_SHORT).show();
                     } else {
-                        startActivity(target);
+                        Intent target = targetIntent();
+                        if (target == null) throw new IllegalArgumentException("Missing target action");
+                        if (targetIsService) {
+                            startForegroundService(target);
+                        } else {
+                            startActivity(target);
+                        }
+                        Log.i(TAG, "Screen-off target dispatched after keyguard authentication");
                     }
-                    Log.i(TAG, "Screen-off target dispatched after keyguard authentication");
                 } catch (Throwable error) {
                     Log.e(TAG, "Unable to dispatch screen-off target after authentication", error);
                 }
@@ -190,6 +221,7 @@ public final class KeyguardLaunchActivity extends Activity {
         String id = source.getStringExtra(EXTRA_HANDOFF_ID);
         if (id == null) return;
         Intent cancel = new Intent(ACTION_CANCEL_HANDOFF)
+                .setPackage("android")
                 .putExtra(EXTRA_HANDOFF_ID, id);
         sendBroadcast(cancel);
     }

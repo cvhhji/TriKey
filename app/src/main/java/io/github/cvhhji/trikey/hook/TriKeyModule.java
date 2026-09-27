@@ -9,9 +9,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -57,13 +59,21 @@ public final class TriKeyModule extends XposedModule {
     private boolean currentPressScreenOff;
     private Runnable clearScreenOffGestureTask;
     private volatile PendingKeyguardLaunch pendingKeyguardLaunch;
-    private boolean keyguardHandoffHookInstalled;
     private boolean keyguardHandoffReceiverRegistered;
     private final BroadcastReceiver keyguardHandoffCancelReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            cancelPendingKeyguardLaunch(intent.getStringExtra(
-                    KeyguardLaunchActivity.EXTRA_HANDOFF_ID));
+            String id = intent.getStringExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID);
+            if (KeyguardLaunchActivity.ACTION_REQUEST_HANDOFF.equals(intent.getAction())) {
+                if (isAuthenticatedHandoffRequest(context, this)) {
+                    log(Log.INFO, TAG, "Received authenticated screen-off launch request");
+                    dispatchPendingKeyguardLaunch(id, true);
+                }
+                return;
+            }
+            if (KeyguardLaunchActivity.ACTION_CANCEL_HANDOFF.equals(intent.getAction())) {
+                cancelPendingKeyguardLaunch(id);
+            }
         }
     };
 
@@ -97,7 +107,7 @@ public final class TriKeyModule extends XposedModule {
                 log(Log.WARN, TAG, "ColorOS shortcut-key policy was unavailable; installed "
                         + installed + " PhoneWindowManager fallback hook(s)");
             }
-            keyguardHandoffHookInstalled = installKeyguardHandoffHook(param.getClassLoader());
+            installKeyguardHandoffHook(param.getClassLoader());
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Unable to install hooks", error);
         }
@@ -398,22 +408,22 @@ public final class TriKeyModule extends XposedModule {
         try {
             Intent target = createTargetIntent(queued.context, type, value);
             if (target == null) return;
-            if ("ocr".equals(type)) {
+            boolean targetIsService = "ocr".equals(type);
+            if (targetIsService) {
                 target = resolveForegroundServiceIntent(queued.context, target);
+            } else {
+                target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             }
-            target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            String handoffId = keyguardHandoffHookInstalled ? UUID.randomUUID().toString() : null;
-            if (handoffId != null) {
-                pendingKeyguardLaunch = new PendingKeyguardLaunch(
-                        handoffId, queued.context, target, "ocr".equals(type),
-                        SystemClock.elapsedRealtime());
-            }
+            String handoffId = UUID.randomUUID().toString();
+            pendingKeyguardLaunch = new PendingKeyguardLaunch(
+                    handoffId, queued.context, target, targetIsService,
+                    SystemClock.elapsedRealtime());
             ComponentName challengeComponent = new ComponentName(
                     BuildConfig.APPLICATION_ID,
                     KeyguardLaunchActivity.class.getName());
             Intent challenge = new Intent().setComponent(challengeComponent)
                     .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_INTENT, target)
-                    .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_IS_SERVICE, "ocr".equals(type))
+                    .putExtra(KeyguardLaunchActivity.EXTRA_TARGET_IS_SERVICE, targetIsService)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             if (handoffId != null) {
                 challenge.putExtra(KeyguardLaunchActivity.EXTRA_SYSTEM_HANDOFF, true)
@@ -443,7 +453,9 @@ public final class TriKeyModule extends XposedModule {
                             .setId("trikey:keyguard-going-away:" + method.toGenericString())
                             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                             .intercept(chain -> {
-                                if (isKeyguardControlCaller()) dispatchPendingKeyguardLaunch();
+                                if (isKeyguardControlCaller()) {
+                                    dispatchPendingKeyguardLaunch(null, false);
+                                }
                                 return chain.proceed();
                             });
                     log(Log.INFO, TAG, "Installed native keyguard transition handoff: "
@@ -472,7 +484,8 @@ public final class TriKeyModule extends XposedModule {
         if (keyguardHandoffReceiverRegistered) return;
         try {
             IntentFilter filter = new IntentFilter(KeyguardLaunchActivity.ACTION_CANCEL_HANDOFF);
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
+            filter.addAction(KeyguardLaunchActivity.ACTION_REQUEST_HANDOFF);
+            if (Build.VERSION.SDK_INT >= 33) {
                 context.registerReceiver(keyguardHandoffCancelReceiver, filter,
                         Context.RECEIVER_EXPORTED);
             } else {
@@ -484,30 +497,79 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private void dispatchPendingKeyguardLaunch() {
-        PendingKeyguardLaunch pending = pendingKeyguardLaunch;
-        if (pending == null) return;
+    private boolean isAuthenticatedHandoffRequest(Context context, BroadcastReceiver receiver) {
+        if (Build.VERSION.SDK_INT < 34) return true;
+        try {
+            int senderUid = receiver.getSentFromUid();
+            ApplicationInfo app = context.getPackageManager()
+                    .getApplicationInfo(BuildConfig.APPLICATION_ID, 0);
+            if (senderUid == app.uid) return true;
+            log(Log.WARN, TAG, "Ignoring handoff request from uid " + senderUid);
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to verify handoff request sender", error);
+        }
+        return false;
+    }
+
+    private boolean dispatchPendingKeyguardLaunch(String id, boolean requireUnlocked) {
+        PendingKeyguardLaunch pending;
         synchronized (this) {
-            if (pendingKeyguardLaunch != pending) return;
-            pendingKeyguardLaunch = null;
+            pending = pendingKeyguardLaunch;
+            if (pending == null || (id != null && !id.equals(pending.id)) || pending.dispatching) {
+                return false;
+            }
+            pending.dispatching = true;
         }
         if (SystemClock.elapsedRealtime() - pending.createdAt > 120_000L) {
+            clearPendingKeyguardLaunchIfSame(pending);
             log(Log.INFO, TAG, "Discarded expired screen-off keyguard handoff");
-            return;
+            return false;
+        }
+        if (requireUnlocked) {
+            try {
+                KeyguardManager keyguard = pending.context.getSystemService(KeyguardManager.class);
+                if (keyguard == null || keyguard.isKeyguardLocked() || keyguard.isDeviceLocked()) {
+                    pending.dispatching = false;
+                    log(Log.WARN, TAG, "Rejected authenticated handoff while keyguard remains locked");
+                    return false;
+                }
+            } catch (Throwable error) {
+                pending.dispatching = false;
+                log(Log.WARN, TAG, "Unable to verify keyguard state for handoff", error);
+                return false;
+            }
         }
         try {
             if (pending.isService) {
-                pending.context.startForegroundService(pending.target);
+                Intent serviceIntent = new Intent(pending.target);
+                serviceIntent.setFlags(serviceIntent.getFlags()
+                        & ~(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+                ComponentName started = pending.context.startForegroundService(serviceIntent);
+                if (started == null) throw new IllegalStateException("System service was not started");
             } else {
                 pending.context.startActivity(pending.target);
             }
+            clearPendingKeyguardLaunchIfSame(pending);
             Intent acknowledgment = new Intent(KeyguardLaunchActivity.ACTION_HANDOFF_STARTED)
                     .setPackage(BuildConfig.APPLICATION_ID)
                     .putExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID, pending.id);
             pending.context.sendBroadcast(acknowledgment);
-            log(Log.INFO, TAG, "Started screen-off target as keyguard exit began");
+            log(Log.INFO, TAG, pending.isService
+                    ? "Started screen-off service through system_server"
+                    : "Started screen-off target through system_server");
+            return true;
         } catch (Throwable error) {
+            synchronized (this) {
+                if (pendingKeyguardLaunch == pending) pending.dispatching = false;
+            }
             log(Log.ERROR, TAG, "Unable to start screen-off target in keyguard transition", error);
+            return false;
+        }
+    }
+
+    private void clearPendingKeyguardLaunchIfSame(PendingKeyguardLaunch pending) {
+        synchronized (this) {
+            if (pendingKeyguardLaunch == pending) pendingKeyguardLaunch = null;
         }
     }
 
@@ -558,6 +620,7 @@ public final class TriKeyModule extends XposedModule {
         final Intent target;
         final boolean isService;
         final long createdAt;
+        boolean dispatching;
 
         PendingKeyguardLaunch(String id, Context context, Intent target, boolean isService,
                               long createdAt) {
