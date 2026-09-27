@@ -3,8 +3,12 @@ package io.github.cvhhji.trikey.hook;
 final class WakeLaunchPolicy {
     private WakeLaunchPolicy() {}
 
-    static boolean shouldWake(boolean screenOff, String action) {
+    static boolean shouldWakeForLaunch(boolean screenOff, String action) {
         return screenOff && isLaunchAction(action);
+    }
+
+    static boolean canRunWhileLocked(String action) {
+        return "dnd_toggle".equals(action);
     }
 
     static boolean shouldWaitForAuthentication(boolean deviceSecure) {

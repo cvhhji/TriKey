@@ -74,7 +74,7 @@ public final class MainActivity extends Activity {
         actions.put("系统设置", "settings");
         actions.put("应用搜索", "app_search");
         actions.put("翻译", "translate");
-        actions.put("游戏中心", "game_center");
+        actions.put("游戏助手", "game_center");
         actions.put("全屏识屏", "ocr");
         actions.put("相机", "camera");
         actions.put("录像", "video_capture");
@@ -85,7 +85,7 @@ public final class MainActivity extends Activity {
         actions.put("录音", "recorder");
         actions.put("展开状态栏", "statusbar_expand");
         actions.put("收起状态栏", "statusbar_collapse");
-        actions.put("切换免打扰", "dnd_toggle");
+        actions.put("免打扰", "dnd_toggle");
         actions.put("快速截图", "screenshot");
         actions.put("返回", "back");
         actions.put("锁屏", "lock_screen");

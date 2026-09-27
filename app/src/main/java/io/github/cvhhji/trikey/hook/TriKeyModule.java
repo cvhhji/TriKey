@@ -226,7 +226,21 @@ public final class TriKeyModule extends XposedModule {
         log(Log.INFO, TAG, "Gesture fired: gesture=" + gesture + ", type=" + type);
         if (context == null) return;
         boolean screenOff = config.getBoolean("screenOffAtGesture", false) || isScreenOff(context);
-        if (!WakeLaunchPolicy.shouldWake(screenOff, type)) {
+        if (WakeLaunchPolicy.canRunWhileLocked(type)) {
+            if (!screenOff) {
+                performAction(context, config, gesture, false);
+                return;
+            }
+            try {
+                wakeDevice(context);
+                queueAfterWake(context, config, gesture, false);
+            } catch (Throwable error) {
+                log(Log.WARN, TAG, "Unable to wake display before do not disturb toggle", error);
+                performAction(context, config, gesture, false);
+            }
+            return;
+        }
+        if (!WakeLaunchPolicy.shouldWakeForLaunch(screenOff, type)) {
             performAction(context, config, gesture, false);
             return;
         }
@@ -393,10 +407,10 @@ public final class TriKeyModule extends XposedModule {
     }
 
     private void queueAfterWake(Context context, Bundle config, String gesture,
-                                boolean deviceSecure) {
+                                boolean requiresAuthentication) {
         clearPendingWakeLaunch("replaced by a newer key action");
         PendingWakeLaunch queued = new PendingWakeLaunch(
-                context, new Bundle(config), gesture, deviceSecure);
+                context, new Bundle(config), gesture, requiresAuthentication);
         pendingWakeLaunch = queued;
         queued.screenReadyTask = () -> {
             if (pendingWakeLaunch != queued) return;
@@ -421,9 +435,11 @@ public final class TriKeyModule extends XposedModule {
             log(Log.INFO, TAG, "Screen-off action canceled before keyguard launch");
             return;
         }
-        if (!queued.deviceSecure) {
-            log(Log.INFO, TAG, "Dispatching screen-off action without device credentials");
-            performAction(queued.context, queued.config, queued.gesture, true);
+        if (!queued.requiresAuthentication) {
+            log(Log.INFO, TAG, "Dispatching screen-off action without authentication");
+            String type = queued.config.getString(queued.gesture + "Type", "none");
+            performAction(queued.context, queued.config, queued.gesture,
+                    !WakeLaunchPolicy.canRunWhileLocked(type));
             return;
         }
         String type = queued.config.getString(queued.gesture + "Type", "none");
@@ -618,15 +634,16 @@ public final class TriKeyModule extends XposedModule {
         final Context context;
         final Bundle config;
         final String gesture;
-        final boolean deviceSecure;
+        final boolean requiresAuthentication;
         Runnable screenReadyTask;
         int waitChecks;
 
-        PendingWakeLaunch(Context context, Bundle config, String gesture, boolean deviceSecure) {
+        PendingWakeLaunch(Context context, Bundle config, String gesture,
+                          boolean requiresAuthentication) {
             this.context = context;
             this.config = config;
             this.gesture = gesture;
-            this.deviceSecure = deviceSecure;
+            this.requiresAuthentication = requiresAuthentication;
         }
     }
 
