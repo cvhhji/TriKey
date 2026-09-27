@@ -9,7 +9,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Binder;
@@ -65,9 +64,13 @@ public final class TriKeyModule extends XposedModule {
         public void onReceive(Context context, Intent intent) {
             String id = intent.getStringExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID);
             if (KeyguardLaunchActivity.ACTION_REQUEST_HANDOFF.equals(intent.getAction())) {
-                if (isAuthenticatedHandoffRequest(context, this)) {
+                if (id == null) {
+                    log(Log.WARN, TAG, "Ignoring handoff request without a pending handoff id");
+                    return;
+                }
+                if (isAcceptableHandoffSender(context, this)) {
                     log(Log.INFO, TAG, "Received authenticated screen-off launch request");
-                    dispatchPendingKeyguardLaunch(id, true);
+                    dispatchPendingKeyguardLaunch(id);
                 }
                 return;
             }
@@ -454,7 +457,7 @@ public final class TriKeyModule extends XposedModule {
                             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                             .intercept(chain -> {
                                 if (isKeyguardControlCaller()) {
-                                    dispatchPendingKeyguardLaunch(null, false);
+                                    dispatchPendingKeyguardLaunch(null);
                                 }
                                 return chain.proceed();
                             });
@@ -497,21 +500,28 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
-    private boolean isAuthenticatedHandoffRequest(Context context, BroadcastReceiver receiver) {
+    private boolean isAcceptableHandoffSender(Context context, BroadcastReceiver receiver) {
         if (Build.VERSION.SDK_INT < 34) return true;
         try {
             int senderUid = receiver.getSentFromUid();
-            ApplicationInfo app = context.getPackageManager()
-                    .getApplicationInfo(BuildConfig.APPLICATION_ID, 0);
-            if (senderUid == app.uid) return true;
-            log(Log.WARN, TAG, "Ignoring handoff request from uid " + senderUid);
+            if (senderUid != Process.INVALID_UID) {
+                String[] senderPackages = context.getPackageManager().getPackagesForUid(senderUid);
+                if (senderPackages != null) {
+                    for (String packageName : senderPackages) {
+                        if (BuildConfig.APPLICATION_ID.equals(packageName)) return true;
+                    }
+                }
+                log(Log.WARN, TAG, "Ignoring handoff request from uid " + senderUid);
+                return false;
+            }
+            log(Log.INFO, TAG, "Handoff sender identity unavailable; validating pending handoff id");
         } catch (Throwable error) {
-            log(Log.WARN, TAG, "Unable to verify handoff request sender", error);
+            log(Log.WARN, TAG, "Unable to read handoff sender identity; validating pending handoff id", error);
         }
-        return false;
+        return true;
     }
 
-    private boolean dispatchPendingKeyguardLaunch(String id, boolean requireUnlocked) {
+    private boolean dispatchPendingKeyguardLaunch(String id) {
         PendingKeyguardLaunch pending;
         synchronized (this) {
             pending = pendingKeyguardLaunch;
@@ -524,20 +534,6 @@ public final class TriKeyModule extends XposedModule {
             clearPendingKeyguardLaunchIfSame(pending);
             log(Log.INFO, TAG, "Discarded expired screen-off keyguard handoff");
             return false;
-        }
-        if (requireUnlocked) {
-            try {
-                KeyguardManager keyguard = pending.context.getSystemService(KeyguardManager.class);
-                if (keyguard == null || keyguard.isKeyguardLocked() || keyguard.isDeviceLocked()) {
-                    pending.dispatching = false;
-                    log(Log.WARN, TAG, "Rejected authenticated handoff while keyguard remains locked");
-                    return false;
-                }
-            } catch (Throwable error) {
-                pending.dispatching = false;
-                log(Log.WARN, TAG, "Unable to verify keyguard state for handoff", error);
-                return false;
-            }
         }
         try {
             if (pending.isService) {
