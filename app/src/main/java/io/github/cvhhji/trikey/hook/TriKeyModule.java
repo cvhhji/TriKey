@@ -3,6 +3,7 @@ package io.github.cvhhji.trikey.hook;
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -11,6 +12,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -260,6 +262,9 @@ public final class TriKeyModule extends XposedModule {
                 case "lock_screen":
                     injectKey(KeyEvent.KEYCODE_POWER);
                     return;
+                case "dnd_toggle":
+                    toggleDoNotDisturb(context);
+                    return;
                 case "ocr":
                     startResolvedForegroundService(context, createTargetIntent(context, type, value));
                     return;
@@ -271,6 +276,21 @@ public final class TriKeyModule extends XposedModule {
         } catch (Throwable error) {
             log(Log.ERROR, TAG, "Action failed for " + gesture + ": " + type, error);
         }
+    }
+
+    @SuppressLint("PrivateApi")
+    private void toggleDoNotDisturb(Context context) throws ReflectiveOperationException {
+        NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
+        if (notificationManager == null) {
+            throw new IllegalStateException("Notification service is unavailable");
+        }
+        int currentFilter = notificationManager.getCurrentInterruptionFilter();
+        int nextZenMode = DndTogglePolicy.nextZenMode(currentFilter);
+        Method setZenMode = NotificationManager.class.getMethod(
+                "setZenMode", int.class, Uri.class, String.class);
+        setZenMode.invoke(notificationManager, nextZenMode, null, TAG);
+        log(Log.INFO, TAG, "Do not disturb toggled to "
+                + (nextZenMode == DndTogglePolicy.ZEN_MODE_OFF ? "off" : "priority"));
     }
 
     private Intent createTargetIntent(Context context, String type, String value) throws Exception {

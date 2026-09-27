@@ -18,6 +18,7 @@ public final class WakeLaunchPolicyTest {
         assertFalse(WakeLaunchPolicy.shouldWake(true, "back"));
         assertFalse(WakeLaunchPolicy.shouldWake(true, "lock_screen"));
         assertFalse(WakeLaunchPolicy.shouldWake(true, "statusbar_expand"));
+        assertFalse(WakeLaunchPolicy.shouldWake(true, "dnd_toggle"));
         assertFalse(WakeLaunchPolicy.shouldWake(true, "none"));
     }
 

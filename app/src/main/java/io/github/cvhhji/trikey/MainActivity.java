@@ -85,6 +85,7 @@ public final class MainActivity extends Activity {
         actions.put("录音", "recorder");
         actions.put("展开状态栏", "statusbar_expand");
         actions.put("收起状态栏", "statusbar_collapse");
+        actions.put("切换免打扰", "dnd_toggle");
         actions.put("快速截图", "screenshot");
         actions.put("返回", "back");
         actions.put("锁屏", "lock_screen");
