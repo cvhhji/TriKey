@@ -36,7 +36,6 @@ import java.util.concurrent.Executors;
 
 import io.github.libxposed.service.HookedTarget;
 import io.github.libxposed.service.XposedService;
-import io.github.libxposed.service.XposedServiceHelper;
 
 public final class MainActivity extends Activity {
     private final ExecutorService statusWorker = Executors.newSingleThreadExecutor();
@@ -58,6 +57,7 @@ public final class MainActivity extends Activity {
     private Button save;
     private SharedPreferences prefs;
     private volatile XposedService xposedService;
+    private TriKeyApplication triKeyApplication;
     private volatile boolean destroyed;
     private int statusCheckGeneration;
     private ActivationState lastVerifiedActivationState = ActivationState.CHECKING;
@@ -226,6 +226,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (triKeyApplication != null) triKeyApplication.detach(this);
         statusHandler.removeCallbacksAndMessages(null);
         statusWorker.shutdownNow();
         super.onDestroy();
@@ -457,33 +458,26 @@ public final class MainActivity extends Activity {
     }
 
     private void bindXposedService() {
-        XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
-            @Override
-            public void onServiceBind(XposedService service) {
-                runOnUiThread(() -> {
-                    if (destroyed) return;
-                    xposedService = service;
-                    prefs = service.getRemotePreferences(Config.PREFS);
-                    loadPreferences();
-                    save.setEnabled(true);
-                    save.setAlpha(1f);
-                    refreshInjectionStatus();
-                });
-            }
+        triKeyApplication = (TriKeyApplication) getApplication();
+        triKeyApplication.attach(this);
+        onXposedServiceChanged(triKeyApplication.getXposedService());
+    }
 
-            @Override
-            public void onServiceDied(XposedService service) {
-                runOnUiThread(() -> {
-                    if (destroyed) return;
-                    statusCheckGeneration++;
-                    xposedService = null;
-                    prefs = null;
-                    setActivation(ActivationState.INACTIVE);
-                    save.setEnabled(false);
-                    save.setAlpha(0.48f);
-                });
-            }
-        });
+    void onXposedServiceChanged(XposedService service) {
+        if (destroyed) return;
+        xposedService = service;
+        if (service == null) {
+            prefs = null;
+            save.setEnabled(false);
+            save.setAlpha(0.48f);
+            refreshInjectionStatus();
+            return;
+        }
+        prefs = service.getRemotePreferences(Config.PREFS);
+        loadPreferences();
+        save.setEnabled(true);
+        save.setAlpha(1f);
+        refreshInjectionStatus();
     }
 
     private void refreshInjectionStatus() {
