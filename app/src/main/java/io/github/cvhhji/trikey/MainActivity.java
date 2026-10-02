@@ -63,7 +63,7 @@ public final class MainActivity extends Activity {
     private ActivationState lastVerifiedActivationState = ActivationState.CHECKING;
 
     private static final String STATE_ACTIVATION = "activation_state";
-    private static final long SERVICE_BIND_TIMEOUT_MS = 1800L;
+    private static final long SERVICE_BIND_TIMEOUT_MS = 8000L;
 
     private enum ActivationState {
         CHECKING,

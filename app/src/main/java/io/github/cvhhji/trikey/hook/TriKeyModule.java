@@ -51,6 +51,7 @@ public final class TriKeyModule extends XposedModule {
     private static final String GLOBAL_TRANSLATION_ACTION = "oplus.intent.action.GLOBAL_TRANSLATION";
     private static final String GLOBAL_TRANSLATION_PACKAGE = "com.coloros.translate";
     private static final String GLOBAL_TRANSLATION_SOURCE_EXTRA = "extra_from_package";
+    private static final long SCREEN_TRANSLATION_FGS_ALLOWLIST_MS = 8000L;
     private static final long SCREEN_READY_TIMEOUT_MS = 3000L;
     private static final String OPLUS_POLICY_CLASS =
             "com.android.server.policy.StrategyActionButtonKeyLaunchApp";
@@ -888,8 +889,42 @@ public final class TriKeyModule extends XposedModule {
 
     private void sendScreenTranslationRelay(Context context) {
         Intent request = createScreenTranslationRelayIntent();
+        if (sendBroadcastWithForegroundServiceAllowance(context, request)) {
+            log(Log.INFO, TAG, "Sent screen translation request to SmartSidebar with temporary foreground-service allowance");
+            return;
+        }
         context.sendBroadcast(request);
         log(Log.INFO, TAG, "Sent screen translation request to SmartSidebar");
+    }
+
+    private boolean sendBroadcastWithForegroundServiceAllowance(Context context, Intent request) {
+        try {
+            Class<?> optionsClass = Class.forName("android.app.BroadcastOptions");
+            Method makeBasic = optionsClass.getDeclaredMethod("makeBasic");
+            makeBasic.setAccessible(true);
+            Object options = makeBasic.invoke(null);
+            try {
+                Method setAllowlist = optionsClass.getDeclaredMethod(
+                        "setTemporaryAppAllowlist", long.class, int.class, int.class, String.class);
+                setAllowlist.setAccessible(true);
+                setAllowlist.invoke(options, SCREEN_TRANSLATION_FGS_ALLOWLIST_MS, 0, 1,
+                        "TriKey screen translation user action");
+            } catch (NoSuchMethodException ignored) {
+                Method setLegacyAllowlist = optionsClass.getDeclaredMethod(
+                        "setTemporaryAppWhitelistDuration", long.class);
+                setLegacyAllowlist.setAccessible(true);
+                setLegacyAllowlist.invoke(options, SCREEN_TRANSLATION_FGS_ALLOWLIST_MS);
+            }
+            Bundle optionBundle = (Bundle) optionsClass.getMethod("toBundle").invoke(options);
+            Method sendBroadcast = Context.class.getDeclaredMethod(
+                    "sendBroadcast", Intent.class, String.class, Bundle.class);
+            sendBroadcast.setAccessible(true);
+            sendBroadcast.invoke(context, request, null, optionBundle);
+            return true;
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to send screen translation relay with temporary foreground-service allowance", error);
+            return false;
+        }
     }
 
     private static Intent createScreenTranslationRelayIntent() {
