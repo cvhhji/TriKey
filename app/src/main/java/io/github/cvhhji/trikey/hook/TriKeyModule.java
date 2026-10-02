@@ -334,9 +334,11 @@ public final class TriKeyModule extends XposedModule {
                     toggleDoNotDisturb(context);
                     return;
                 case "ocr":
+                    startResolvedForegroundService(context, createTargetIntent(context, type, value), true);
+                    return;
                 case "translate":
                 case "screen_translate":
-                    startResolvedForegroundService(context, createTargetIntent(context, type, value));
+                    startResolvedForegroundService(context, createTargetIntent(context, type, value), false);
                     return;
             }
             Intent intent = createTargetIntent(context, type, value);
@@ -546,7 +548,7 @@ public final class TriKeyModule extends XposedModule {
                     || "translate".equals(type)
                     || "screen_translate".equals(type);
             if (targetIsService) {
-                target = resolveForegroundServiceIntent(queued.context, target);
+                target = resolveForegroundServiceIntent(queued.context, target, "ocr".equals(type));
             } else {
                 target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             }
@@ -805,12 +807,12 @@ public final class TriKeyModule extends XposedModule {
                 .putExtra("KEY_SCHEME", scheme);
     }
 
-    private void startResolvedForegroundService(Context context, Intent intent) {
-        context.startForegroundService(resolveForegroundServiceIntent(context, intent));
+    private void startResolvedForegroundService(Context context, Intent intent, boolean systemOnly) {
+        context.startForegroundService(resolveForegroundServiceIntent(context, intent, systemOnly));
     }
 
-    private Intent resolveForegroundServiceIntent(Context context, Intent intent) {
-        int flags = PackageManager.MATCH_SYSTEM_ONLY
+    private Intent resolveForegroundServiceIntent(Context context, Intent intent, boolean systemOnly) {
+        int flags = (systemOnly ? PackageManager.MATCH_SYSTEM_ONLY : 0)
                 | PackageManager.MATCH_DIRECT_BOOT_AWARE
                 | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
         ResolveInfo resolved = context.getPackageManager().resolveService(intent, flags);
