@@ -74,6 +74,7 @@ public final class MainActivity extends Activity {
         actions.put("系统设置", "settings");
         actions.put("应用搜索", "app_search");
         actions.put("翻译", "translate");
+        actions.put("屏幕翻译", "screen_translate");
         actions.put("游戏助手", "game_center");
         actions.put("全屏识屏", "ocr");
         actions.put("相机", "camera");
@@ -91,6 +92,7 @@ public final class MainActivity extends Activity {
         actions.put("锁屏", "lock_screen");
         actions.put("自定义应用", "app");
         actions.put("自定义 Intent", "intent");
+        actions.put("自定义 Shell 命令", "shell");
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -272,21 +274,36 @@ public final class MainActivity extends Activity {
         value.setText("");
         value.setVisibility(View.GONE);
         section.addView(value, margins(0, 0, 0, 0));
+        TextView valueHint = text("", 12, false, R.color.text_tertiary);
+        valueHint.setVisibility(View.GONE);
+        section.addView(valueHint, margins(2, 6, 0, 0));
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String type = actions.get(String.valueOf(parent.getItemAtPosition(position)));
-                boolean custom = "app".equals(type) || "intent".equals(type);
-                valueLabel.setText("app".equals(type) ? "应用包名" : "Intent URI");
-                value.setHint("app".equals(type) ? "例如 com.example.app" : "粘贴 Intent URI");
+                boolean shell = "shell".equals(type);
+                boolean custom = "app".equals(type) || "intent".equals(type) || shell;
+                valueLabel.setText("app".equals(type) ? "应用包名"
+                        : "intent".equals(type) ? "Intent URI" : "Shell 命令");
+                value.setHint("app".equals(type) ? "例如 com.example.app"
+                        : "intent".equals(type) ? "粘贴 Intent URI" : "输入要执行的命令");
+                value.setInputType(shell
+                        ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                        : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                value.setMaxLines(shell ? 5 : 3);
+                value.setContentDescription(label + (shell ? " Shell 命令" : "动作参数"));
+                valueHint.setText("通过 su 以 Root 执行；首次运行请在 Root 管理器中允许 TriKey，单次最长运行 7 秒。");
                 valueLabel.setVisibility(custom ? View.VISIBLE : View.GONE);
                 value.setVisibility(custom ? View.VISIBLE : View.GONE);
+                valueHint.setVisibility(shell ? View.VISIBLE : View.GONE);
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
                 valueLabel.setVisibility(View.GONE);
                 value.setVisibility(View.GONE);
+                valueHint.setVisibility(View.GONE);
             }
         });
         root.addView(section, margins(0, 14, 0, 0));
@@ -398,6 +415,12 @@ public final class MainActivity extends Activity {
                     Intent.parseUri(value, Intent.URI_INTENT_SCHEME);
                 } catch (Exception error) {
                     throw new IllegalArgumentException(labelForGesture(gesture) + "：Intent URI 格式无效");
+                }
+            } else if ("shell".equals(type)) {
+                if (!ShellCommandPolicy.isValidCommand(value)) {
+                    throw new IllegalArgumentException(labelForGesture(gesture)
+                            + "：Shell 命令不能为空且不能超过 "
+                            + ShellCommandPolicy.MAX_COMMAND_LENGTH + " 个字符");
                 }
             }
         }

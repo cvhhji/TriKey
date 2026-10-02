@@ -150,7 +150,7 @@ The screen has no route navigation, lists, or tables. The top identity block pre
 
 ### Forms and overlays
 
-Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app and Intent fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. App launches keep authentication system-owned; the do-not-disturb action wakes the display and can run on the lock screen without dismissing keyguard. The activation card shows only “已激活” or “未激活”, updates automatically, and has no click action. No modal or custom popup is introduced.
+Settings remain in one scrollable form. Native Switch and CheckBox rows use a 48dp minimum touch height. Numeric inputs have visible labels; custom app, Intent, and Shell command fields expose a visible label and an accessible name. Screen-off wake and secure system authentication are always-on behavior, not a setting and not a dedicated explanatory card. App launches keep authentication system-owned; the do-not-disturb action wakes the display and can run on the lock screen without dismissing keyguard. Root Shell commands run in the app process and wait for system authentication whenever the device is locked. The activation card shows only “已激活” or “未激活”, updates automatically, and has no click action. No modal or custom popup is introduced.
 
 ### Iconography
 

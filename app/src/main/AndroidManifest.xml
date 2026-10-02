@@ -39,6 +39,17 @@
             android:exported="true"
             android:permission="android.permission.START_ANY_ACTIVITY"
             android:theme="@style/KeyguardLaunchTheme" />
+        <service
+            android:name=".ShellCommandService"
+            android:exported="false" />
+        <receiver
+            android:name=".ShellCommandReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="io.github.cvhhji.trikey.action.RUN_SHELL_COMMAND" />
+            </intent-filter>
+        </receiver>
         <activity-alias
             android:name=".Launcher"
             android:enabled="true"

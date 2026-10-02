@@ -28,6 +28,8 @@ import android.view.KeyEvent;
 
 import io.github.cvhhji.trikey.BuildConfig;
 import io.github.cvhhji.trikey.KeyguardLaunchActivity;
+import io.github.cvhhji.trikey.ShellCommandReceiver;
+import io.github.cvhhji.trikey.ShellCommandPolicy;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -41,6 +43,7 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 
 public final class TriKeyModule extends XposedModule {
     private static final String TAG = "TriKey";
+    private static final long SCREEN_READY_TIMEOUT_MS = 3000L;
     private static final String OPLUS_POLICY_CLASS =
             "com.android.server.policy.StrategyActionButtonKeyLaunchApp";
     private static final String OPLUS_POLICY_METHOD = "actionInterceptKeyBeforeQueueing";
@@ -61,6 +64,17 @@ public final class TriKeyModule extends XposedModule {
     private Runnable clearScreenOffGestureTask;
     private volatile PendingKeyguardLaunch pendingKeyguardLaunch;
     private boolean keyguardHandoffReceiverRegistered;
+    private boolean screenOnReceiverRegistered;
+    private final BroadcastReceiver screenOnReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!Intent.ACTION_SCREEN_ON.equals(intent.getAction())) return;
+            PendingWakeLaunch queued = pendingWakeLaunch;
+            if (queued != null && queued.screenReadyTask != null) {
+                handler.post(queued.screenReadyTask);
+            }
+        }
+    };
     private final BroadcastReceiver keyguardHandoffCancelReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -226,12 +240,17 @@ public final class TriKeyModule extends XposedModule {
         log(Log.INFO, TAG, "Gesture fired: gesture=" + gesture + ", type=" + type);
         if (context == null) return;
         boolean screenOff = config.getBoolean("screenOffAtGesture", false) || isScreenOff(context);
+        if ("shell".equals(type)) {
+            executeShellCommand(context, config.getString(gesture + "Value", ""), screenOff);
+            return;
+        }
         if (WakeLaunchPolicy.canRunWhileLocked(type)) {
             if (!screenOff) {
                 performAction(context, config, gesture, false);
                 return;
             }
             try {
+                ensureScreenOnReceiver(context);
                 wakeDevice(context);
                 queueAfterWake(context, config, gesture, false);
             } catch (Throwable error) {
@@ -244,6 +263,7 @@ public final class TriKeyModule extends XposedModule {
             performAction(context, config, gesture, false);
             return;
         }
+        ensureScreenOnReceiver(context);
         try {
             wakeDevice(context);
         } catch (Throwable error) {
@@ -253,6 +273,40 @@ public final class TriKeyModule extends XposedModule {
         log(Log.INFO, TAG, "Screen-off action requires device authentication: " + deviceSecure);
         queueAfterWake(context, config, gesture,
                 WakeLaunchPolicy.shouldWaitForAuthentication(deviceSecure));
+    }
+
+    private void executeShellCommand(Context context, String command, boolean screenOff) {
+        if (!ShellCommandPolicy.isValidCommand(command)) {
+            log(Log.WARN, TAG, "Custom Root command is empty or too long");
+            return;
+        }
+        boolean keyguardLocked = isKeyguardLocked(context);
+        if (screenOff) {
+            try {
+                wakeDevice(context);
+            } catch (Throwable error) {
+                log(Log.WARN, TAG, "Unable to wake display before Root command authentication", error);
+            }
+        }
+        try {
+            if (screenOff || keyguardLocked) {
+                Intent challenge = new Intent().setComponent(new ComponentName(
+                        BuildConfig.APPLICATION_ID, KeyguardLaunchActivity.class.getName()))
+                        .putExtra(KeyguardLaunchActivity.EXTRA_SHELL_COMMAND, command)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                context.startActivity(challenge);
+                log(Log.INFO, TAG, "Requested system authentication before custom Root command");
+                return;
+            }
+            Intent run = new Intent(ShellCommandReceiver.ACTION_RUN)
+                    .setComponent(new ComponentName(
+                            BuildConfig.APPLICATION_ID, ShellCommandReceiver.class.getName()))
+                    .putExtra(ShellCommandReceiver.EXTRA_COMMAND, command);
+            context.sendBroadcast(run);
+            log(Log.INFO, TAG, "Submitted custom Root command to TriKey");
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to submit custom Root command", error);
+        }
     }
 
     private void performAction(Context context, Bundle config, String gesture,
@@ -317,8 +371,22 @@ public final class TriKeyModule extends XposedModule {
                 return new Intent(android.provider.Settings.ACTION_SETTINGS);
             case "app_search":
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
-            case "translate":
+            case "translate": {
+                Intent translation = new Intent("coloros.intent.action.TRANSLATION_MAIN_PAGE")
+                        .setPackage("com.coloros.translate");
+                if (context.getPackageManager().resolveActivity(
+                        translation, PackageManager.MATCH_DEFAULT_ONLY) != null) return translation;
                 return component("com.coloros.translate", "com.coloros.translate.ui.MainActivity");
+            }
+            case "screen_translate": {
+                Intent screenTranslation = new Intent("oplus.intent.action.GLOBAL_TRANSLATION_PANEL")
+                        .setPackage("com.coloros.translate");
+                if (context.getPackageManager().resolveActivity(
+                        screenTranslation, PackageManager.MATCH_DEFAULT_ONLY) == null) {
+                    throw new IllegalStateException("ColorOS screen translation is unavailable");
+                }
+                return screenTranslation;
+            }
             case "game_center":
                 return component("com.oplus.games", "business.module.desktop.JumpSpaceActivity");
             case "camera":
@@ -376,6 +444,16 @@ public final class TriKeyModule extends XposedModule {
         }
     }
 
+    private boolean isKeyguardLocked(Context context) {
+        try {
+            KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+            return keyguard == null || keyguard.isKeyguardLocked() || keyguard.isDeviceLocked();
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to verify keyguard state; treating it as locked", error);
+            return true;
+        }
+    }
+
     private void wakeDevice(Context context) throws ReflectiveOperationException {
         PowerManager powerManager = context.getSystemService(PowerManager.class);
         if (powerManager == null) throw new IllegalStateException("PowerManager is unavailable");
@@ -412,6 +490,26 @@ public final class TriKeyModule extends XposedModule {
         PendingWakeLaunch queued = new PendingWakeLaunch(
                 context, new Bundle(config), gesture, requiresAuthentication);
         pendingWakeLaunch = queued;
+        if (screenOnReceiverRegistered) {
+            queued.screenReadyTask = () -> {
+                if (pendingWakeLaunch != queued || isScreenOff(queued.context)) return;
+                handler.removeCallbacks(queued.screenReadyTimeoutTask);
+                queued.screenReadyTask = () -> dispatchAfterWake(queued);
+                handler.post(queued.screenReadyTask);
+            };
+            queued.screenReadyTimeoutTask = () -> {
+                if (pendingWakeLaunch != queued) return;
+                if (isScreenOff(queued.context)) {
+                    clearPendingWakeLaunch("display did not finish waking");
+                    unregisterScreenOnReceiver(queued.context);
+                } else {
+                    handler.post(queued.screenReadyTask);
+                }
+            };
+            handler.post(queued.screenReadyTask);
+            handler.postDelayed(queued.screenReadyTimeoutTask, SCREEN_READY_TIMEOUT_MS);
+            return;
+        }
         queued.screenReadyTask = () -> {
             if (pendingWakeLaunch != queued) return;
             if (isScreenOff(queued.context)) {
@@ -431,6 +529,10 @@ public final class TriKeyModule extends XposedModule {
     private void dispatchAfterWake(PendingWakeLaunch queued) {
         if (pendingWakeLaunch != queued) return;
         pendingWakeLaunch = null;
+        if (queued.screenReadyTimeoutTask != null) {
+            handler.removeCallbacks(queued.screenReadyTimeoutTask);
+        }
+        unregisterScreenOnReceiver(queued.context);
         if (isScreenOff(queued.context)) {
             log(Log.INFO, TAG, "Screen-off action canceled before keyguard launch");
             return;
@@ -516,6 +618,34 @@ public final class TriKeyModule extends XposedModule {
         Context context = systemContext;
         return context != null && context.checkCallingPermission(
                 "android.permission.CONTROL_KEYGUARD") == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void ensureScreenOnReceiver(Context context) {
+        if (screenOnReceiverRegistered) return;
+        try {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(screenOnReceiver, filter, Context.RECEIVER_EXPORTED);
+            } else {
+                context.registerReceiver(screenOnReceiver, filter);
+            }
+            screenOnReceiverRegistered = true;
+            log(Log.INFO, TAG, "Registered event-driven screen wake listener");
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to register screen wake listener; using bounded fallback checks", error);
+        }
+    }
+
+    private void unregisterScreenOnReceiver(Context context) {
+        if (!screenOnReceiverRegistered) return;
+        try {
+            context.unregisterReceiver(screenOnReceiver);
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to unregister screen wake listener", error);
+        } finally {
+            screenOnReceiverRegistered = false;
+        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -618,7 +748,10 @@ public final class TriKeyModule extends XposedModule {
         if (pendingWakeLaunch == null) return;
         PendingWakeLaunch queued = pendingWakeLaunch;
         pendingWakeLaunch = null;
-        handler.removeCallbacks(queued.screenReadyTask);
+        if (queued.screenReadyTask != null) handler.removeCallbacks(queued.screenReadyTask);
+        if (queued.screenReadyTimeoutTask != null) {
+            handler.removeCallbacks(queued.screenReadyTimeoutTask);
+        }
         log(Log.INFO, TAG, "Cleared pending wake launch: " + reason);
     }
 
@@ -636,6 +769,7 @@ public final class TriKeyModule extends XposedModule {
         final String gesture;
         final boolean requiresAuthentication;
         Runnable screenReadyTask;
+        Runnable screenReadyTimeoutTask;
         int waitChecks;
 
         PendingWakeLaunch(Context context, Bundle config, String gesture,

@@ -19,6 +19,7 @@ import android.widget.Toast;
 public final class KeyguardLaunchActivity extends Activity {
     public static final String EXTRA_TARGET_INTENT = "io.github.cvhhji.trikey.extra.TARGET_INTENT";
     public static final String EXTRA_TARGET_IS_SERVICE = "io.github.cvhhji.trikey.extra.TARGET_IS_SERVICE";
+    public static final String EXTRA_SHELL_COMMAND = "io.github.cvhhji.trikey.extra.SHELL_COMMAND";
     public static final String EXTRA_SYSTEM_HANDOFF = "io.github.cvhhji.trikey.extra.SYSTEM_HANDOFF";
     public static final String EXTRA_HANDOFF_ID = "io.github.cvhhji.trikey.extra.HANDOFF_ID";
     public static final String ACTION_HANDOFF_STARTED = "io.github.cvhhji.trikey.action.HANDOFF_STARTED";
@@ -156,6 +157,18 @@ public final class KeyguardLaunchActivity extends Activity {
             if (getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false)
                     && systemHandoffAcknowledged) {
                 Log.i(TAG, "Target was handed off during the system keyguard exit transition");
+            } else if (getIntent().hasExtra(EXTRA_SHELL_COMMAND)) {
+                try {
+                    Intent command = new Intent(this, ShellCommandService.class)
+                            .putExtra(ShellCommandReceiver.EXTRA_COMMAND,
+                                    getIntent().getStringExtra(EXTRA_SHELL_COMMAND));
+                    if (startService(command) == null) {
+                        throw new IllegalStateException("Root command service was not started");
+                    }
+                    Log.i(TAG, "Started authenticated Root command");
+                } catch (Throwable error) {
+                    Log.e(TAG, "Unable to start authenticated Root command", error);
+                }
             } else {
                 try {
                     cancelSystemHandoff();

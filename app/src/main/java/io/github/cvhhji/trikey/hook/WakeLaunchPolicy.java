@@ -27,6 +27,7 @@ final class WakeLaunchPolicy {
             case "settings":
             case "app_search":
             case "translate":
+            case "screen_translate":
             case "game_center":
             case "ocr":
             case "camera":
