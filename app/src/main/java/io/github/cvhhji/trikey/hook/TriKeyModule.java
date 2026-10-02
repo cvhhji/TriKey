@@ -2,6 +2,7 @@ package io.github.cvhhji.trikey.hook;
 
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
+import android.app.Application;
 import android.app.KeyguardManager;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -40,9 +41,16 @@ import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
 public final class TriKeyModule extends XposedModule {
     private static final String TAG = "TriKey";
+    private static final String SMARTSIDEBAR_PACKAGE = "com.coloros.smartsidebar";
+    private static final String SCREEN_TRANSLATION_RELAY_ACTION =
+            BuildConfig.APPLICATION_ID + ".action.START_SCREEN_TRANSLATION";
+    private static final String GLOBAL_TRANSLATION_ACTION = "oplus.intent.action.GLOBAL_TRANSLATION";
+    private static final String GLOBAL_TRANSLATION_PACKAGE = "com.coloros.translate";
+    private static final String GLOBAL_TRANSLATION_SOURCE_EXTRA = "extra_from_package";
     private static final long SCREEN_READY_TIMEOUT_MS = 3000L;
     private static final String OPLUS_POLICY_CLASS =
             "com.android.server.policy.StrategyActionButtonKeyLaunchApp";
@@ -63,6 +71,9 @@ public final class TriKeyModule extends XposedModule {
     private boolean currentPressScreenOff;
     private Runnable clearScreenOffGestureTask;
     private volatile PendingKeyguardLaunch pendingKeyguardLaunch;
+    private String moduleProcessName;
+    private boolean screenTranslationRelayRegistered;
+    private BroadcastReceiver screenTranslationRelayReceiver;
     private boolean keyguardHandoffReceiverRegistered;
     private boolean screenOnReceiverRegistered;
     private final BroadcastReceiver screenOnReceiver = new BroadcastReceiver() {
@@ -98,7 +109,31 @@ public final class TriKeyModule extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
+        moduleProcessName = param.getProcessName();
         log(Log.INFO, TAG, "API 102 module loaded in " + param.getProcessName());
+    }
+
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        if (!SMARTSIDEBAR_PACKAGE.equals(param.getPackageName())) return;
+        String processName = moduleProcessName;
+        if (!SMARTSIDEBAR_PACKAGE.equals(processName)
+                && !(SMARTSIDEBAR_PACKAGE + ":edgepanel").equals(processName)) return;
+        try {
+            Method attach = Application.class.getDeclaredMethod("attach", Context.class);
+            attach.setAccessible(true);
+            hook(attach)
+                    .setId("trikey:smartsidebar-application-attach")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Application application = (Application) chain.getThisObject();
+                        registerScreenTranslationRelay(application.getBaseContext());
+                        return result;
+                    });
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to install SmartSidebar relay hook", error);
+        }
     }
 
     @Override
@@ -338,7 +373,7 @@ public final class TriKeyModule extends XposedModule {
                     return;
                 case "translate":
                 case "screen_translate":
-                    startResolvedForegroundService(context, createTargetIntent(context, type, value), false);
+                    requestScreenTranslation(context);
                     return;
             }
             Intent intent = createTargetIntent(context, type, value);
@@ -377,10 +412,7 @@ public final class TriKeyModule extends XposedModule {
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
             case "translate":
             case "screen_translate": {
-                Intent screenTranslation = new Intent("oplus.intent.action.GLOBAL_TRANSLATION")
-                        .setPackage("com.coloros.translate")
-                        .putExtra("extra_from_package", BuildConfig.APPLICATION_ID);
-                return screenTranslation;
+                return createScreenTranslationRelayIntent();
             }
             case "game_center":
                 return component("com.oplus.games", "business.module.desktop.JumpSpaceActivity");
@@ -544,17 +576,16 @@ public final class TriKeyModule extends XposedModule {
         try {
             Intent target = createTargetIntent(queued.context, type, value);
             if (target == null) return;
-            boolean targetIsService = "ocr".equals(type)
-                    || "translate".equals(type)
-                    || "screen_translate".equals(type);
-            if (targetIsService) {
-                target = resolveForegroundServiceIntent(queued.context, target, "ocr".equals(type));
-            } else {
+            boolean targetIsSmartSidebarRelay = isScreenTranslationAction(type);
+            boolean targetIsService = "ocr".equals(type) || targetIsSmartSidebarRelay;
+            if ("ocr".equals(type)) {
+                target = resolveForegroundServiceIntent(queued.context, target, true);
+            } else if (!targetIsSmartSidebarRelay) {
                 target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             }
             String handoffId = UUID.randomUUID().toString();
             pendingKeyguardLaunch = new PendingKeyguardLaunch(
-                    handoffId, queued.context, target, targetIsService,
+                    handoffId, queued.context, target, targetIsService, targetIsSmartSidebarRelay,
                     SystemClock.elapsedRealtime());
             ComponentName challengeComponent = new ComponentName(
                     BuildConfig.APPLICATION_ID,
@@ -699,7 +730,9 @@ public final class TriKeyModule extends XposedModule {
             return false;
         }
         try {
-            if (pending.isService) {
+            if (pending.isSmartSidebarRelay) {
+                sendScreenTranslationRelay(pending.context);
+            } else if (pending.isService) {
                 Intent serviceIntent = new Intent(pending.target);
                 serviceIntent.setFlags(serviceIntent.getFlags()
                         & ~(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
@@ -713,9 +746,11 @@ public final class TriKeyModule extends XposedModule {
                     .setPackage(BuildConfig.APPLICATION_ID)
                     .putExtra(KeyguardLaunchActivity.EXTRA_HANDOFF_ID, pending.id);
             pending.context.sendBroadcast(acknowledgment);
-            log(Log.INFO, TAG, pending.isService
-                    ? "Started screen-off service through system_server"
-                    : "Started screen-off target through system_server");
+            log(Log.INFO, TAG, pending.isSmartSidebarRelay
+                    ? "Relayed screen-off translation through SmartSidebar"
+                    : pending.isService
+                            ? "Started screen-off service through system_server"
+                            : "Started screen-off target through system_server");
             return true;
         } catch (Throwable error) {
             synchronized (this) {
@@ -783,15 +818,17 @@ public final class TriKeyModule extends XposedModule {
         final Context context;
         final Intent target;
         final boolean isService;
+        final boolean isSmartSidebarRelay;
         final long createdAt;
         boolean dispatching;
 
         PendingKeyguardLaunch(String id, Context context, Intent target, boolean isService,
-                              long createdAt) {
+                              boolean isSmartSidebarRelay, long createdAt) {
             this.id = id;
             this.context = context;
             this.target = target;
             this.isService = isService;
+            this.isSmartSidebarRelay = isSmartSidebarRelay;
             this.createdAt = createdAt;
         }
     }
@@ -805,6 +842,62 @@ public final class TriKeyModule extends XposedModule {
                 .setClassName("com.eg.android.AlipayGphone", "com.alipay.android.phone.wallet.shortcuts.bridge.ShortcutsLauncherActivity")
                 .putExtra("KEY_APP_ID", appId)
                 .putExtra("KEY_SCHEME", scheme);
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerScreenTranslationRelay(Context context) {
+        if (context == null || screenTranslationRelayRegistered) return;
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context receiverContext, Intent intent) {
+                if (!SCREEN_TRANSLATION_RELAY_ACTION.equals(intent.getAction())
+                        || !SMARTSIDEBAR_PACKAGE.equals(receiverContext.getPackageName())) return;
+                try {
+                    Intent translation = new Intent(GLOBAL_TRANSLATION_ACTION)
+                            .setPackage(GLOBAL_TRANSLATION_PACKAGE)
+                            .putExtra(GLOBAL_TRANSLATION_SOURCE_EXTRA, SMARTSIDEBAR_PACKAGE);
+                    startResolvedForegroundService(receiverContext, translation, false);
+                    log(Log.INFO, TAG, "Started screen translation from SmartSidebar process");
+                } catch (Throwable error) {
+                    log(Log.ERROR, TAG, "Unable to start screen translation from SmartSidebar", error);
+                }
+            }
+        };
+        try {
+            IntentFilter filter = new IntentFilter(SCREEN_TRANSLATION_RELAY_ACTION);
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(receiver, filter);
+            }
+            screenTranslationRelayReceiver = receiver;
+            screenTranslationRelayRegistered = true;
+            log(Log.INFO, TAG, "Registered system-only screen translation relay in " + moduleProcessName);
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to register SmartSidebar screen translation relay", error);
+        }
+    }
+
+    private void requestScreenTranslation(Context context) {
+        try {
+            sendScreenTranslationRelay(context);
+        } catch (Throwable error) {
+            log(Log.ERROR, TAG, "Unable to request screen translation", error);
+        }
+    }
+
+    private void sendScreenTranslationRelay(Context context) {
+        Intent request = createScreenTranslationRelayIntent();
+        context.sendBroadcast(request);
+        log(Log.INFO, TAG, "Sent screen translation request to SmartSidebar");
+    }
+
+    private static Intent createScreenTranslationRelayIntent() {
+        return new Intent(SCREEN_TRANSLATION_RELAY_ACTION).setPackage(SMARTSIDEBAR_PACKAGE);
+    }
+
+    private static boolean isScreenTranslationAction(String type) {
+        return "translate".equals(type) || "screen_translate".equals(type);
     }
 
     private void startResolvedForegroundService(Context context, Intent intent, boolean systemOnly) {
