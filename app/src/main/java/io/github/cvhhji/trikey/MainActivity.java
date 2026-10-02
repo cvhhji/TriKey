@@ -9,6 +9,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -38,6 +40,7 @@ import io.github.libxposed.service.XposedServiceHelper;
 
 public final class MainActivity extends Activity {
     private final ExecutorService statusWorker = Executors.newSingleThreadExecutor();
+    private final Handler statusHandler = new Handler(Looper.getMainLooper());
     private final Map<String, String> actions = new LinkedHashMap<>();
     private final Map<String, Spinner> typeViews = new LinkedHashMap<>();
     private final Map<String, EditText> valueViews = new LinkedHashMap<>();
@@ -57,6 +60,10 @@ public final class MainActivity extends Activity {
     private volatile XposedService xposedService;
     private volatile boolean destroyed;
     private int statusCheckGeneration;
+    private ActivationState lastVerifiedActivationState = ActivationState.CHECKING;
+
+    private static final String STATE_ACTIVATION = "activation_state";
+    private static final long SERVICE_BIND_TIMEOUT_MS = 1800L;
 
     private enum ActivationState {
         CHECKING,
@@ -73,7 +80,6 @@ public final class MainActivity extends Activity {
         actions.put("全局搜索", "global_search");
         actions.put("系统设置", "settings");
         actions.put("应用搜索", "app_search");
-        actions.put("翻译", "translate");
         actions.put("屏幕翻译", "screen_translate");
         actions.put("游戏助手", "game_center");
         actions.put("全屏识屏", "ocr");
@@ -140,7 +146,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams activationStatusParams = new LinearLayout.LayoutParams(0, -2, 1f);
         activationStatusParams.setMargins(dp(16), 0, 0, 0);
         activationCard.addView(activationStatus, activationStatusParams);
-        setActivation(ActivationState.CHECKING);
+        setActivation(readActivationState(state));
         root.addView(activationCard, margins(0, 20, 0, 0));
 
         LinearLayout general = card("常规");
@@ -220,8 +226,26 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        statusHandler.removeCallbacksAndMessages(null);
         statusWorker.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putString(STATE_ACTIVATION, lastVerifiedActivationState.name());
+        super.onSaveInstanceState(outState);
+    }
+
+    private static ActivationState readActivationState(Bundle state) {
+        if (state == null) return ActivationState.CHECKING;
+        String savedState = state.getString(STATE_ACTIVATION);
+        if (savedState == null) return ActivationState.CHECKING;
+        try {
+            return ActivationState.valueOf(savedState);
+        } catch (IllegalArgumentException ignored) {
+            return ActivationState.CHECKING;
+        }
     }
 
     private void addGesture(LinearLayout root, String key, String label) {
@@ -293,7 +317,7 @@ public final class MainActivity extends Activity {
                         : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
                 value.setMaxLines(shell ? 5 : 3);
                 value.setContentDescription(label + (shell ? " Shell 命令" : "动作参数"));
-                valueHint.setText("通过 su 以 Root 执行；首次运行请在 Root 管理器中允许 TriKey，单次最长运行 7 秒。");
+                valueHint.setText("请在Root管理器中允许Trikey，单次最长运行7秒。");
                 valueLabel.setVisibility(custom ? View.VISIBLE : View.GONE);
                 value.setVisibility(custom ? View.VISIBLE : View.GONE);
                 valueHint.setVisibility(shell ? View.VISIBLE : View.GONE);
@@ -466,8 +490,12 @@ public final class MainActivity extends Activity {
         if (destroyed) return;
         XposedService service = xposedService;
         if (service == null) {
-            statusCheckGeneration++;
-            setActivation(ActivationState.INACTIVE);
+            int generation = ++statusCheckGeneration;
+            statusHandler.postDelayed(() -> {
+                if (!destroyed && generation == statusCheckGeneration && xposedService == null) {
+                    setActivation(ActivationState.INACTIVE);
+                }
+            }, SERVICE_BIND_TIMEOUT_MS);
             return;
         }
         int generation = ++statusCheckGeneration;
@@ -511,6 +539,7 @@ public final class MainActivity extends Activity {
     }
 
     private void setActivation(ActivationState state) {
+        if (state != ActivationState.CHECKING) lastVerifiedActivationState = state;
         int cardColor;
         int iconBackground;
         int iconForeground;
@@ -572,6 +601,10 @@ public final class MainActivity extends Activity {
         longMs.setText(String.valueOf(prefs.getInt("longMs", Config.DEFAULT_LONG_MS)));
         for (String gesture : typeViews.keySet()) {
             String selected = prefs.getString(gesture + "Type", defaultType(gesture));
+            if ("translate".equals(selected)) {
+                selected = "screen_translate";
+                prefs.edit().putString(gesture + "Type", selected).apply();
+            }
             int index = 0;
             for (String type : actions.values()) {
                 if (type.equals(selected)) break;

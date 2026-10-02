@@ -10,6 +10,7 @@ public final class WakeLaunchPolicyTest {
     public void screenOffLaunchIsOnByDefault() {
         assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "settings"));
         assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "screen_translate"));
+        assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "translate"));
         assertFalse(WakeLaunchPolicy.shouldWakeForLaunch(false, "settings"));
     }
 

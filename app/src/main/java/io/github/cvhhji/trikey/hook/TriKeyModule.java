@@ -334,6 +334,8 @@ public final class TriKeyModule extends XposedModule {
                     toggleDoNotDisturb(context);
                     return;
                 case "ocr":
+                case "translate":
+                case "screen_translate":
                     startResolvedForegroundService(context, createTargetIntent(context, type, value));
                     return;
             }
@@ -371,20 +373,11 @@ public final class TriKeyModule extends XposedModule {
                 return new Intent(android.provider.Settings.ACTION_SETTINGS);
             case "app_search":
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
-            case "translate": {
-                Intent translation = new Intent("coloros.intent.action.TRANSLATION_MAIN_PAGE")
-                        .setPackage("com.coloros.translate");
-                if (context.getPackageManager().resolveActivity(
-                        translation, PackageManager.MATCH_DEFAULT_ONLY) != null) return translation;
-                return component("com.coloros.translate", "com.coloros.translate.ui.MainActivity");
-            }
+            case "translate":
             case "screen_translate": {
-                Intent screenTranslation = new Intent("oplus.intent.action.GLOBAL_TRANSLATION_PANEL")
-                        .setPackage("com.coloros.translate");
-                if (context.getPackageManager().resolveActivity(
-                        screenTranslation, PackageManager.MATCH_DEFAULT_ONLY) == null) {
-                    throw new IllegalStateException("ColorOS screen translation is unavailable");
-                }
+                Intent screenTranslation = new Intent("oplus.intent.action.GLOBAL_TRANSLATION")
+                        .setPackage("com.coloros.translate")
+                        .putExtra("extra_from_package", BuildConfig.APPLICATION_ID);
                 return screenTranslation;
             }
             case "game_center":
@@ -549,7 +542,9 @@ public final class TriKeyModule extends XposedModule {
         try {
             Intent target = createTargetIntent(queued.context, type, value);
             if (target == null) return;
-            boolean targetIsService = "ocr".equals(type);
+            boolean targetIsService = "ocr".equals(type)
+                    || "translate".equals(type)
+                    || "screen_translate".equals(type);
             if (targetIsService) {
                 target = resolveForegroundServiceIntent(queued.context, target);
             } else {
