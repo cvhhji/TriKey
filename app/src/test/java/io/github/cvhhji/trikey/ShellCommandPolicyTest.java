@@ -23,6 +23,7 @@ public final class ShellCommandPolicyTest {
 
     @Test
     public void invokesCommandsThroughSu() {
-        assertArrayEquals(new String[]{"su", "-c", "id"}, ShellCommandPolicy.rootCommand("id"));
+        assertArrayEquals(new String[]{"/system/bin/su", "-c", "id"},
+                ShellCommandPolicy.rootCommand("id"));
     }
 }

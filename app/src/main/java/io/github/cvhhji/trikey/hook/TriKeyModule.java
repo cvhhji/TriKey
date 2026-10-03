@@ -5,6 +5,7 @@ import android.app.ActivityOptions;
 import android.app.Application;
 import android.app.KeyguardManager;
 import android.app.NotificationManager;
+import android.media.AudioManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -22,6 +23,7 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
@@ -369,9 +371,12 @@ public final class TriKeyModule extends XposedModule {
                 case "dnd_toggle":
                     toggleDoNotDisturb(context);
                     return;
+                case "sound_vibration":
+                    cycleRingerMode(context);
+                    return;
                 case "flash_note":
                     context.startForegroundService(createTargetIntent(context, type, value));
-                    log(Log.INFO, TAG, "Started ColorOS one-tap flash note service");
+                    log(Log.INFO, TAG, "Started ColorOS one-tap flash note collection");
                     return;
                 case "ocr":
                     startResolvedForegroundService(context, createTargetIntent(context, type, value), true);
@@ -405,6 +410,25 @@ public final class TriKeyModule extends XposedModule {
                 + (nextZenMode == DndTogglePolicy.ZEN_MODE_OFF ? "off" : "priority"));
     }
 
+    private void cycleRingerMode(Context context) throws ReflectiveOperationException {
+        AudioManager audioManager = context.getSystemService(AudioManager.class);
+        if (audioManager == null) {
+            throw new IllegalStateException("Audio service is unavailable");
+        }
+        Method getRingerMode = AudioManager.class.getDeclaredMethod("getRingerModeInternal");
+        getRingerMode.setAccessible(true);
+        int currentMode = (Integer) getRingerMode.invoke(audioManager);
+        boolean vibrateWhenSilent = Settings.System.getInt(
+                context.getContentResolver(), "vibrate_when_silent", 0) != 0;
+        int nextMode = RingerModeTogglePolicy.nextMode(currentMode, vibrateWhenSilent);
+        Method setRingerMode = AudioManager.class.getDeclaredMethod(
+                "setRingerModeInternal", int.class);
+        setRingerMode.setAccessible(true);
+        setRingerMode.invoke(audioManager, nextMode);
+        log(Log.INFO, TAG, "Sound and vibration mode changed from " + currentMode + " to "
+                + nextMode);
+    }
+
     private Intent createTargetIntent(Context context, String type, String value) throws Exception {
         switch (type) {
             case "wechat":
@@ -413,13 +437,13 @@ public final class TriKeyModule extends XposedModule {
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.SearchHomeActivity");
             case "settings":
                 return new Intent(android.provider.Settings.ACTION_SETTINGS);
-            case "sound_vibration":
-                return new Intent(android.provider.Settings.ACTION_SOUND_SETTINGS);
             case "flash_note":
                 return new Intent()
-                        .setPackage("com.coloros.colordirectservice")
-                        .putExtra("triggerType", 1)
-                        .addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+                        .setComponent(new ComponentName(
+                                "com.oplus.gleanerservice",
+                                "com.oplus.gleanerservice.feature.flashnotes.business.service.DataCollectService"))
+                        .setAction("oplus.gleanerservice.intent.action.COLLECT_DATA")
+                        .putExtra("triggerType", 1);
             case "app_search":
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
             case "translate":

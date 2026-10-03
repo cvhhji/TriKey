@@ -2,6 +2,7 @@ package io.github.cvhhji.trikey;
 
 public final class ShellCommandPolicy {
     public static final int MAX_COMMAND_LENGTH = 4096;
+    public static final String ROOT_EXECUTABLE = "/system/bin/su";
 
     private ShellCommandPolicy() {}
 
@@ -13,6 +14,6 @@ public final class ShellCommandPolicy {
     }
 
     public static String[] rootCommand(String command) {
-        return new String[]{"su", "-c", command};
+        return new String[]{ROOT_EXECUTABLE, "-c", command};
     }
 }

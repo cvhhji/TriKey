@@ -29,9 +29,9 @@ public final class WakeLaunchPolicyTest {
     @Test
     public void doNotDisturbCanRunOnLockScreenWithoutAuthentication() {
         assertTrue(WakeLaunchPolicy.canRunWhileLocked("dnd_toggle"));
+        assertTrue(WakeLaunchPolicy.canRunWhileLocked("sound_vibration"));
         assertFalse(WakeLaunchPolicy.canRunWhileLocked("settings"));
         assertFalse(WakeLaunchPolicy.canRunWhileLocked("flash_note"));
-        assertFalse(WakeLaunchPolicy.canRunWhileLocked("sound_vibration"));
     }
 
     @Test

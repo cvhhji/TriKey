@@ -8,7 +8,7 @@ final class WakeLaunchPolicy {
     }
 
     static boolean canRunWhileLocked(String action) {
-        return "dnd_toggle".equals(action);
+        return "dnd_toggle".equals(action) || "sound_vibration".equals(action);
     }
 
     static boolean shouldWaitForAuthentication(boolean deviceSecure) {
