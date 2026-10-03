@@ -6,24 +6,21 @@ import org.junit.Test;
 
 public final class RingerModeTogglePolicyTest {
     @Test
-    public void normalModeUsesTheSystemVibrateWhenSilentSetting() {
+    public void cyclesThroughRingVibrateAndSilent() {
         assertEquals(RingerModeTogglePolicy.RINGER_MODE_VIBRATE,
                 RingerModeTogglePolicy.nextMode(
-                        RingerModeTogglePolicy.RINGER_MODE_NORMAL, true));
+                        RingerModeTogglePolicy.RINGER_MODE_NORMAL));
         assertEquals(RingerModeTogglePolicy.RINGER_MODE_SILENT,
                 RingerModeTogglePolicy.nextMode(
-                        RingerModeTogglePolicy.RINGER_MODE_NORMAL, false));
+                        RingerModeTogglePolicy.RINGER_MODE_VIBRATE));
+        assertEquals(RingerModeTogglePolicy.RINGER_MODE_NORMAL,
+                RingerModeTogglePolicy.nextMode(
+                        RingerModeTogglePolicy.RINGER_MODE_SILENT));
     }
 
     @Test
-    public void mutedAndUnknownModesReturnToRing() {
+    public void unknownModeReturnsToRing() {
         assertEquals(RingerModeTogglePolicy.RINGER_MODE_NORMAL,
-                RingerModeTogglePolicy.nextMode(
-                        RingerModeTogglePolicy.RINGER_MODE_VIBRATE, true));
-        assertEquals(RingerModeTogglePolicy.RINGER_MODE_NORMAL,
-                RingerModeTogglePolicy.nextMode(
-                        RingerModeTogglePolicy.RINGER_MODE_SILENT, false));
-        assertEquals(RingerModeTogglePolicy.RINGER_MODE_NORMAL,
-                RingerModeTogglePolicy.nextMode(-1, false));
+                RingerModeTogglePolicy.nextMode(-1));
     }
 }

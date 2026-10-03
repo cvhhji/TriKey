@@ -7,9 +7,12 @@ final class RingerModeTogglePolicy {
 
     private RingerModeTogglePolicy() {}
 
-    static int nextMode(int currentMode, boolean vibrateWhenSilent) {
+    static int nextMode(int currentMode) {
         if (currentMode == RINGER_MODE_NORMAL) {
-            return vibrateWhenSilent ? RINGER_MODE_VIBRATE : RINGER_MODE_SILENT;
+            return RINGER_MODE_VIBRATE;
+        }
+        if (currentMode == RINGER_MODE_VIBRATE) {
+            return RINGER_MODE_SILENT;
         }
         return RINGER_MODE_NORMAL;
     }

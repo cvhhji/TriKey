@@ -23,11 +23,11 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.PowerManager;
 import android.os.SystemClock;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyEvent;
+import android.widget.Toast;
 
 import io.github.cvhhji.trikey.BuildConfig;
 import io.github.cvhhji.trikey.KeyguardLaunchActivity;
@@ -375,7 +375,8 @@ public final class TriKeyModule extends XposedModule {
                     cycleRingerMode(context);
                     return;
                 case "flash_note":
-                    context.startForegroundService(createTargetIntent(context, type, value));
+                    startResolvedForegroundService(
+                            context, createTargetIntent(context, type, value), true);
                     log(Log.INFO, TAG, "Started ColorOS one-tap flash note collection");
                     return;
                 case "ocr":
@@ -418,15 +419,48 @@ public final class TriKeyModule extends XposedModule {
         Method getRingerMode = AudioManager.class.getDeclaredMethod("getRingerModeInternal");
         getRingerMode.setAccessible(true);
         int currentMode = (Integer) getRingerMode.invoke(audioManager);
-        boolean vibrateWhenSilent = Settings.System.getInt(
-                context.getContentResolver(), "vibrate_when_silent", 0) != 0;
-        int nextMode = RingerModeTogglePolicy.nextMode(currentMode, vibrateWhenSilent);
+        int nextMode = RingerModeTogglePolicy.nextMode(currentMode);
         Method setRingerMode = AudioManager.class.getDeclaredMethod(
                 "setRingerModeInternal", int.class);
         setRingerMode.setAccessible(true);
         setRingerMode.invoke(audioManager, nextMode);
+        showRingerModeHint(context, nextMode);
         log(Log.INFO, TAG, "Sound and vibration mode changed from " + currentMode + " to "
                 + nextMode);
+    }
+
+    private void showRingerModeHint(Context context, int mode) {
+        String resourceName;
+        String fallback;
+        switch (mode) {
+            case RingerModeTogglePolicy.RINGER_MODE_SILENT:
+                resourceName = "volume_footer_slient";
+                fallback = "静音";
+                break;
+            case RingerModeTogglePolicy.RINGER_MODE_VIBRATE:
+                resourceName = "volume_vibrate";
+                fallback = "振动";
+                break;
+            default:
+                resourceName = "volume_footer_ring";
+                fallback = "响铃";
+                break;
+        }
+        String label = fallback;
+        try {
+            Context systemUiContext = context.createPackageContext(
+                    "com.android.systemui", Context.CONTEXT_RESTRICTED);
+            int resourceId = systemUiContext.getResources().getIdentifier(
+                    resourceName, "string", "com.android.systemui");
+            if (resourceId != 0) label = systemUiContext.getString(resourceId);
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to load system ringer mode label", error);
+        }
+        try {
+            Toast.makeText(context, label, Toast.LENGTH_SHORT).show();
+        } catch (Throwable error) {
+            log(Log.WARN, TAG, "Unable to show ringer mode hint", error);
+        }
     }
 
     private Intent createTargetIntent(Context context, String type, String value) throws Exception {
@@ -439,9 +473,6 @@ public final class TriKeyModule extends XposedModule {
                 return new Intent(android.provider.Settings.ACTION_SETTINGS);
             case "flash_note":
                 return new Intent()
-                        .setComponent(new ComponentName(
-                                "com.oplus.gleanerservice",
-                                "com.oplus.gleanerservice.feature.flashnotes.business.service.DataCollectService"))
                         .setAction("oplus.gleanerservice.intent.action.COLLECT_DATA")
                         .putExtra("triggerType", 1);
             case "app_search":
@@ -615,7 +646,7 @@ public final class TriKeyModule extends XposedModule {
             boolean targetIsSmartSidebarRelay = isScreenTranslationAction(type);
             boolean targetIsFlashNote = "flash_note".equals(type);
             boolean targetIsService = "ocr".equals(type) || targetIsFlashNote || targetIsSmartSidebarRelay;
-            if ("ocr".equals(type)) {
+            if ("ocr".equals(type) || targetIsFlashNote) {
                 target = resolveForegroundServiceIntent(queued.context, target, true);
             } else if (!targetIsSmartSidebarRelay && !targetIsFlashNote) {
                 target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
