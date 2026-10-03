@@ -26,6 +26,8 @@ final class WakeLaunchPolicy {
             case "global_search":
             case "settings":
             case "app_search":
+            case "sound_vibration":
+            case "flash_note":
             case "translate":
             case "screen_translate":
             case "game_center":

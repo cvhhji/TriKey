@@ -369,6 +369,10 @@ public final class TriKeyModule extends XposedModule {
                 case "dnd_toggle":
                     toggleDoNotDisturb(context);
                     return;
+                case "flash_note":
+                    context.startForegroundService(createTargetIntent(context, type, value));
+                    log(Log.INFO, TAG, "Started ColorOS one-tap flash note service");
+                    return;
                 case "ocr":
                     startResolvedForegroundService(context, createTargetIntent(context, type, value), true);
                     return;
@@ -409,6 +413,13 @@ public final class TriKeyModule extends XposedModule {
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.SearchHomeActivity");
             case "settings":
                 return new Intent(android.provider.Settings.ACTION_SETTINGS);
+            case "sound_vibration":
+                return new Intent(android.provider.Settings.ACTION_SOUND_SETTINGS);
+            case "flash_note":
+                return new Intent()
+                        .setPackage("com.coloros.colordirectservice")
+                        .putExtra("triggerType", 1)
+                        .addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             case "app_search":
                 return component("com.heytap.quicksearchbox", "com.heytap.quicksearchbox.ui.activity.AppCategoryActivity");
             case "translate":
@@ -578,10 +589,11 @@ public final class TriKeyModule extends XposedModule {
             Intent target = createTargetIntent(queued.context, type, value);
             if (target == null) return;
             boolean targetIsSmartSidebarRelay = isScreenTranslationAction(type);
-            boolean targetIsService = "ocr".equals(type) || targetIsSmartSidebarRelay;
+            boolean targetIsFlashNote = "flash_note".equals(type);
+            boolean targetIsService = "ocr".equals(type) || targetIsFlashNote || targetIsSmartSidebarRelay;
             if ("ocr".equals(type)) {
                 target = resolveForegroundServiceIntent(queued.context, target, true);
-            } else if (!targetIsSmartSidebarRelay) {
+            } else if (!targetIsSmartSidebarRelay && !targetIsFlashNote) {
                 target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             }
             String handoffId = UUID.randomUUID().toString();

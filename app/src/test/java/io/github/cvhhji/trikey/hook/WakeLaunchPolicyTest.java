@@ -10,6 +10,8 @@ public final class WakeLaunchPolicyTest {
     public void screenOffLaunchIsOnByDefault() {
         assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "settings"));
         assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "screen_translate"));
+        assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "flash_note"));
+        assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "sound_vibration"));
         assertTrue(WakeLaunchPolicy.shouldWakeForLaunch(true, "translate"));
         assertFalse(WakeLaunchPolicy.shouldWakeForLaunch(false, "settings"));
     }
@@ -28,6 +30,8 @@ public final class WakeLaunchPolicyTest {
     public void doNotDisturbCanRunOnLockScreenWithoutAuthentication() {
         assertTrue(WakeLaunchPolicy.canRunWhileLocked("dnd_toggle"));
         assertFalse(WakeLaunchPolicy.canRunWhileLocked("settings"));
+        assertFalse(WakeLaunchPolicy.canRunWhileLocked("flash_note"));
+        assertFalse(WakeLaunchPolicy.canRunWhileLocked("sound_vibration"));
     }
 
     @Test

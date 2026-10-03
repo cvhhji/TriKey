@@ -14,11 +14,14 @@ public final class ShellCommandService extends Service {
                 ? null : intent.getStringExtra(ShellCommandReceiver.EXTRA_COMMAND);
         boolean accepted = ShellCommandRunner.submit(command, result -> {
             ShellCommandReceiver.logResult(result);
-            stopSelfResult(startId);
+            ShellCommandReceiver.showResult(this, result, () -> stopSelfResult(startId));
         });
         if (!accepted) {
             Log.w(TAG, "Authenticated Root command rejected because it is invalid or another command is running");
-            stopSelfResult(startId);
+            ShellCommandReceiver.showMessage(this,
+                    ShellCommandPolicy.isValidCommand(command)
+                            ? "上一条 Shell 命令仍在运行" : "Shell 命令为空或超出长度限制",
+                    () -> stopSelfResult(startId));
         }
         return START_NOT_STICKY;
     }

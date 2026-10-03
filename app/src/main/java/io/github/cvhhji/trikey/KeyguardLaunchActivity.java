@@ -168,6 +168,8 @@ public final class KeyguardLaunchActivity extends Activity {
                     Log.i(TAG, "Started authenticated Root command");
                 } catch (Throwable error) {
                     Log.e(TAG, "Unable to start authenticated Root command", error);
+                    ShellCommandReceiver.showMessage(this,
+                            "Shell 命令启动失败，请检查 Trikey 的 Root 授权");
                 }
             } else {
                 try {
@@ -176,7 +178,7 @@ public final class KeyguardLaunchActivity extends Activity {
                     boolean systemHandoff = getIntent().getBooleanExtra(EXTRA_SYSTEM_HANDOFF, false);
                     if (targetIsService && systemHandoff) {
                         Log.e(TAG, "System service handoff was not acknowledged; refusing app-UID launch");
-                        Toast.makeText(this, "系统识屏启动失败，请检查模块状态", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "系统服务启动失败，请检查模块状态", Toast.LENGTH_SHORT).show();
                     } else {
                         Intent target = targetIntent();
                         if (target == null) throw new IllegalArgumentException("Missing target action");

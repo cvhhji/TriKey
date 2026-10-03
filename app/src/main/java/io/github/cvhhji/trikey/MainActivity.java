@@ -81,6 +81,8 @@ public final class MainActivity extends Activity {
         actions.put("系统设置", "settings");
         actions.put("应用搜索", "app_search");
         actions.put("屏幕翻译", "screen_translate");
+        actions.put("一键闪记", "flash_note");
+        actions.put("声音与振动", "sound_vibration");
         actions.put("游戏助手", "game_center");
         actions.put("全屏识屏", "ocr");
         actions.put("相机", "camera");
